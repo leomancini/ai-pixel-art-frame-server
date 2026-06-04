@@ -1,0 +1,10 @@
+{
+  "app_id": "ai-pixel-art-frame",
+  "app_name": "AI Pixel Art Frame",
+  "domain": "https://ai-pixel-art-frame.leo.gd",
+  "host": "localhost",
+  "port": "3136",
+  "author": "leo",
+  "anthropic": true,
+  "created_on": "Wed Jun  3 10:46:29 PM EDT 2026"
+}
