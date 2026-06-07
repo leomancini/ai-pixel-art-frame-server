@@ -2,6 +2,7 @@ import 'dotenv/config';
 import Anthropic from "@anthropic-ai/sdk";
 import express from "express";
 import Database from "better-sqlite3";
+import vm from "node:vm";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 
@@ -179,6 +180,7 @@ for (const preset of Object.values(presets)) {
 }
 
 let activePresetKey = "plasma";
+let activeGalleryId = null;
 setAnimationFromRGB(presets.plasma.frames, presets.plasma.delayMs);
 
 // List presets for the picker UI
@@ -207,8 +209,229 @@ app.post("/api/presets/:key/activate", (req, res) => {
   const preset = presets[req.params.key];
   if (!preset) return res.status(404).json({ error: "unknown preset" });
   activePresetKey = req.params.key;
+  activeGalleryId = null;
   setAnimationFromRGB(preset.frames, preset.delayMs);
   res.json({ id: animation.id, key: activePresetKey });
+});
+
+// ── AI-generated animations (gallery) ──────────────────────────────────────
+//
+// Claude writes a small deterministic render function rather than raw pixels
+// (64 frames of literal RGB would be ~200K numbers). The server executes it
+// in a node:vm sandbox to rasterize the frames, validates them, and stores
+// the result in SQLite. Generated animations live in the gallery alongside
+// the presets and activate the same way.
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS animations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    prompt TEXT NOT NULL,
+    name TEXT NOT NULL,
+    code TEXT NOT NULL,
+    frame_count INTEGER NOT NULL,
+    delay_ms INTEGER NOT NULL,
+    frames BLOB NOT NULL, -- frame_count * 3072 bytes of raw RGB
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )
+`);
+
+const GENERATOR_SYSTEM_PROMPT = `You write animations for a 32x32 RGB LED matrix (a physical pixel-art frame on a wall).
+
+You respond with JSON containing a JavaScript render function. The function signature must be exactly:
+
+  function render(frame, frameCount, x, y)
+
+It is called for every pixel of every frame: frame is 0..frameCount-1, x/y are 0..31 (origin top-left), and it must return an array [r, g, b] with values 0..255. It must be pure and deterministic — same inputs, same output. Only Math is available; no other globals, no Date, no Math.random (use a hash function if you need deterministic noise), no state between calls except module-level constants/precomputation you define alongside the function.
+
+Requirements:
+- SEAMLESS LOOP: the animation must loop perfectly. Every time-dependent term must complete an integer number of cycles over frameCount frames (use phase = frame / frameCount * 2 * Math.PI and integer multiples of it; for moving objects, displacement over the loop must be a multiple of 32 or return to start).
+- This is a physical LED matrix: saturated colors and black backgrounds look great; muddy mid-grays look bad. The panel has 16 brightness levels per channel, so prefer bold contrast over subtle gradients.
+- 32x32 is tiny: keep compositions simple and readable. One clear subject beats intricate detail.
+- Pick frameCount (8-64) and delayMs (30-150) to suit the motion. Use the full 64 frames only when the motion needs it.
+- The name should be short (1-3 words), evocative, suitable as a gallery label.
+
+You may define helper functions and precomputed module-level constants before render. Keep the total code under 150 lines.`;
+
+const ANIMATION_SCHEMA = {
+  type: "object",
+  properties: {
+    name: { type: "string", description: "Short gallery label, 1-3 words" },
+    frameCount: { type: "integer", description: "Number of frames, 8-64" },
+    delayMs: { type: "integer", description: "Per-frame delay in ms, 30-150" },
+    code: {
+      type: "string",
+      description:
+        "JavaScript defining function render(frame, frameCount, x, y) -> [r,g,b], plus any helpers/constants",
+    },
+  },
+  required: ["name", "frameCount", "delayMs", "code"],
+  additionalProperties: false,
+};
+
+// Execute generated code in a vm sandbox and rasterize all frames.
+// Throws (with a useful message) if the code is broken.
+function rasterize(code, frameCount) {
+  const harness = `
+    "use strict";
+    ${code}
+    ;(() => {
+      const frames = [];
+      for (let f = 0; f < ${frameCount}; f++) {
+        const frame = new Array(${FRAME_WIDTH * FRAME_HEIGHT * 3});
+        for (let y = 0; y < ${FRAME_HEIGHT}; y++) {
+          for (let x = 0; x < ${FRAME_WIDTH}; x++) {
+            const px = render(f, ${frameCount}, x, y);
+            const o = (y * ${FRAME_WIDTH} + x) * 3;
+            for (let c = 0; c < 3; c++) {
+              const v = Math.round(Number(px && px[c]));
+              frame[o + c] = v >= 0 ? (v <= 255 ? v : 255) : 0; // clamps NaN to 0
+            }
+          }
+        }
+        frames.push(frame);
+      }
+      return frames;
+    })()
+  `;
+  const context = vm.createContext({ Math });
+  return new vm.Script(harness).runInContext(context, { timeout: 5000 });
+}
+
+// Ask Claude for an animation and rasterize it; one retry with the error
+// fed back if the generated code fails to run.
+async function generateAnimation(prompt) {
+  const messages = [{ role: "user", content: prompt }];
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const stream = anthropic.messages.stream({
+      model: "claude-opus-4-8",
+      max_tokens: 32000,
+      thinking: { type: "adaptive" },
+      system: [
+        {
+          type: "text",
+          text: GENERATOR_SYSTEM_PROMPT,
+          cache_control: { type: "ephemeral" },
+        },
+      ],
+      output_config: {
+        format: { type: "json_schema", schema: ANIMATION_SCHEMA },
+      },
+      messages,
+    });
+    const message = await stream.finalMessage();
+    const text = message.content.find((b) => b.type === "text")?.text;
+    const result = JSON.parse(text);
+    result.frameCount = Math.max(8, Math.min(MAX_FRAMES, result.frameCount));
+    result.delayMs = Math.max(20, Math.min(5000, result.delayMs));
+    try {
+      result.frames = rasterize(result.code, result.frameCount);
+      return result;
+    } catch (error) {
+      if (attempt === 1) throw error;
+      console.log(`[!] generated code failed (${error.message}), retrying`);
+      messages.push(
+        { role: "assistant", content: message.content },
+        {
+          role: "user",
+          content: `Your render code threw an error when executed: ${error.message}\nPlease fix it and respond with the corrected JSON.`,
+        }
+      );
+    }
+  }
+}
+
+function galleryRowToFrames(row) {
+  const frames = [];
+  for (let f = 0; f < row.frame_count; f++) {
+    frames.push(Array.from(row.frames.subarray(f * 3072, (f + 1) * 3072)));
+  }
+  return frames;
+}
+
+function activateGalleryRow(row) {
+  activePresetKey = null;
+  activeGalleryId = row.id;
+  setAnimationFromRGB(galleryRowToFrames(row), row.delay_ms);
+}
+
+// Generate a new animation from a prompt, save it, and show it on the frame
+app.post("/api/generate", async (req, res) => {
+  const prompt = (req.body?.prompt ?? "").trim();
+  if (!prompt) return res.status(400).json({ error: "prompt is required" });
+  if (prompt.length > 500) {
+    return res.status(400).json({ error: "prompt too long (max 500 chars)" });
+  }
+  try {
+    const anim = await generateAnimation(prompt);
+    const blob = Buffer.from(anim.frames.flat());
+    const row = db
+      .prepare(
+        `INSERT INTO animations (prompt, name, code, frame_count, delay_ms, frames)
+         VALUES (?, ?, ?, ?, ?, ?) RETURNING *`
+      )
+      .get(prompt, anim.name, anim.code, anim.frames.length, anim.delayMs, blob);
+    activateGalleryRow(row);
+    res.json({
+      id: row.id,
+      name: row.name,
+      frameCount: row.frame_count,
+      delayMs: row.delay_ms,
+    });
+  } catch (error) {
+    console.error("[!] generation failed:", error);
+    res.status(500).json({ error: `generation failed: ${error.message}` });
+  }
+});
+
+// List the gallery (newest first; no frame data — fetch per-item for previews)
+app.get("/api/gallery", (req, res) => {
+  const rows = db
+    .prepare(
+      `SELECT id, prompt, name, frame_count, delay_ms, created_at
+       FROM animations ORDER BY id DESC`
+    )
+    .all();
+  res.json(
+    rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      prompt: r.prompt,
+      frameCount: r.frame_count,
+      delayMs: r.delay_ms,
+      createdAt: r.created_at,
+      active: r.id === activeGalleryId,
+    }))
+  );
+});
+
+// Frame data for one gallery item, for canvas previews
+app.get("/api/gallery/:id", (req, res) => {
+  const row = db
+    .prepare(`SELECT * FROM animations WHERE id = ?`)
+    .get(req.params.id);
+  if (!row) return res.status(404).json({ error: "not found" });
+  res.set("Cache-Control", "max-age=3600"); // gallery items are immutable
+  res.json({ frames: galleryRowToFrames(row), delayMs: row.delay_ms });
+});
+
+// Show a gallery animation on the frame
+app.post("/api/gallery/:id/activate", (req, res) => {
+  const row = db
+    .prepare(`SELECT * FROM animations WHERE id = ?`)
+    .get(req.params.id);
+  if (!row) return res.status(404).json({ error: "not found" });
+  activateGalleryRow(row);
+  res.json({ id: animation.id, galleryId: row.id });
+});
+
+// Remove a gallery animation
+app.delete("/api/gallery/:id", (req, res) => {
+  const result = db
+    .prepare(`DELETE FROM animations WHERE id = ?`)
+    .run(req.params.id);
+  if (result.changes === 0) return res.status(404).json({ error: "not found" });
+  if (activeGalleryId === Number(req.params.id)) activeGalleryId = null;
+  res.json({ deleted: true });
 });
 
 // Full animation bundle: ANM0, uint32 id, uint16 frameCount, uint16 delayMs,
@@ -267,6 +490,7 @@ app.post("/api/animation", (req, res) => {
     }
   }
   activePresetKey = null; // custom art, no preset active
+  activeGalleryId = null;
   setAnimationFromRGB(frames, Math.max(20, Math.min(5000, delayMs)));
   res.json({ id: animation.id, frames: animation.frames.length });
 });

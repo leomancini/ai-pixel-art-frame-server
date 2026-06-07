@@ -9,10 +9,58 @@ const Page = styled.div`
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 32px;
+  gap: 40px;
+  padding: 48px 24px;
   background: #0b0b0f;
   color: #eee;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+`;
+
+const PromptForm = styled.form`
+  display: flex;
+  gap: 10px;
+  width: min(560px, 90vw);
+`;
+
+const PromptInput = styled.input`
+  flex: 1;
+  padding: 14px 18px;
+  font-size: 15px;
+  color: #eee;
+  background: #16161d;
+  border: 2px solid #26262f;
+  border-radius: 12px;
+  outline: none;
+
+  &:focus {
+    border-color: #3a3a48;
+  }
+  &::placeholder {
+    color: #666;
+  }
+`;
+
+const GenerateButton = styled.button`
+  padding: 14px 22px;
+  font-size: 15px;
+  color: #0b0b0f;
+  background: #eee;
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+`;
+
+const GenerationStatus = styled.div`
+  font-size: 14px;
+  color: ${(p) => (p.$error ? "#ff7a7a" : "#888")};
+  min-height: 1.2em;
+  text-align: center;
 `;
 
 const Row = styled.div`
@@ -20,6 +68,14 @@ const Row = styled.div`
   gap: 24px;
   flex-wrap: wrap;
   justify-content: center;
+  max-width: 1100px;
+`;
+
+const SectionLabel = styled.div`
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #555;
 `;
 
 const Card = styled.button`
@@ -41,8 +97,8 @@ const Card = styled.button`
 `;
 
 const Preview = styled.canvas`
-  width: 192px;
-  height: 192px;
+  width: 160px;
+  height: 160px;
   image-rendering: pixelated;
   border-radius: 6px;
   background: #000;
@@ -51,16 +107,17 @@ const Preview = styled.canvas`
 const Name = styled.div`
   font-size: 15px;
   color: ${(p) => (p.$active ? "#5dd6ff" : "#ccc")};
+  max-width: 160px;
 `;
 
-// Plays a preset's frames on a 32x32 canvas
-function PresetPreview({ presetKey }) {
+// Plays an animation's frames on a 32x32 canvas, fetched from `src`
+function AnimPreview({ src }) {
   const canvasRef = useRef(null);
   const animRef = useRef(null);
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`/api/presets/${presetKey}`)
+    fetch(src)
       .then((r) => r.json())
       .then(({ frames, delayMs }) => {
         if (cancelled) return;
@@ -86,33 +143,105 @@ function PresetPreview({ presetKey }) {
       cancelled = true;
       clearTimeout(animRef.current);
     };
-  }, [presetKey]);
+  }, [src]);
 
   return <Preview ref={canvasRef} width={SIZE} height={SIZE} />;
 }
 
 function App() {
   const [presets, setPresets] = useState([]);
+  const [gallery, setGallery] = useState([]);
+  const [prompt, setPrompt] = useState("");
+  const [generating, setGenerating] = useState(false);
+  const [genStatus, setGenStatus] = useState("");
+  const [genError, setGenError] = useState(false);
 
-  useEffect(() => {
-    fetch("/api/presets")
-      .then((r) => r.json())
-      .then(setPresets);
-  }, []);
+  const refresh = () => {
+    fetch("/api/presets").then((r) => r.json()).then(setPresets);
+    fetch("/api/gallery").then((r) => r.json()).then(setGallery);
+  };
+  useEffect(refresh, []);
 
-  const activate = async (key) => {
-    const res = await fetch(`/api/presets/${key}/activate`, { method: "POST" });
-    if (res.ok) {
-      setPresets((ps) => ps.map((p) => ({ ...p, active: p.key === key })));
+  const generate = async (e) => {
+    e.preventDefault();
+    if (!prompt.trim() || generating) return;
+    setGenerating(true);
+    setGenError(false);
+    setGenStatus("Generating… this takes up to a minute");
+    try {
+      const res = await fetch("/api/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: prompt.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "generation failed");
+      setPrompt("");
+      setGenStatus(`"${data.name}" is live on the frame`);
+      setTimeout(() => setGenStatus(""), 4000);
+      refresh();
+    } catch (err) {
+      setGenError(true);
+      setGenStatus(err.message);
+    } finally {
+      setGenerating(false);
     }
+  };
+
+  const activatePreset = async (key) => {
+    const res = await fetch(`/api/presets/${key}/activate`, { method: "POST" });
+    if (res.ok) refresh();
+  };
+
+  const activateGallery = async (id) => {
+    const res = await fetch(`/api/gallery/${id}/activate`, { method: "POST" });
+    if (res.ok) refresh();
   };
 
   return (
     <Page>
+      <PromptForm onSubmit={generate}>
+        <PromptInput
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          placeholder="Describe an animation… e.g. rain falling on a city skyline"
+          maxLength={500}
+          disabled={generating}
+        />
+        <GenerateButton type="submit" disabled={generating || !prompt.trim()}>
+          {generating ? "Generating…" : "Generate"}
+        </GenerateButton>
+      </PromptForm>
+      <GenerationStatus $error={genError}>{genStatus}</GenerationStatus>
+
+      {gallery.length > 0 && (
+        <>
+          <SectionLabel>Gallery</SectionLabel>
+          <Row>
+            {gallery.map((g) => (
+              <Card
+                key={g.id}
+                $active={g.active}
+                title={g.prompt}
+                onClick={() => activateGallery(g.id)}
+              >
+                <AnimPreview src={`/api/gallery/${g.id}`} />
+                <Name $active={g.active}>{g.name}</Name>
+              </Card>
+            ))}
+          </Row>
+        </>
+      )}
+
+      <SectionLabel>Presets</SectionLabel>
       <Row>
         {presets.map((p) => (
-          <Card key={p.key} $active={p.active} onClick={() => activate(p.key)}>
-            <PresetPreview presetKey={p.key} />
+          <Card
+            key={p.key}
+            $active={p.active}
+            onClick={() => activatePreset(p.key)}
+          >
+            <AnimPreview src={`/api/presets/${p.key}`} />
             <Name $active={p.active}>{p.name}</Name>
           </Card>
         ))}
