@@ -81,7 +81,15 @@ const Card = styled.button`
   border: none;
   border-radius: 14px;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background 0.15s, transform 0.15s ease;
+
+  &:hover {
+    transform: scale(1.04);
+  }
+  &:active {
+    transform: scale(0.96);
+    transition-duration: 0.15s, 0.06s;
+  }
 `;
 
 const Preview = styled.canvas`
