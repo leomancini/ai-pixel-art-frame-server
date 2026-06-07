@@ -209,6 +209,9 @@ function App() {
           placeholder="Describe an animation… e.g. rain falling on a city skyline"
           maxLength={500}
           disabled={generating}
+          autoComplete="off"
+          data-1p-ignore="true"
+          data-lpignore="true"
         />
         <GenerateButton type="submit" disabled={generating || !prompt.trim()}>
           {generating ? "Generating…" : "Generate"}
