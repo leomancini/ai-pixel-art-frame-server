@@ -245,7 +245,7 @@ It is called for every pixel of every frame: frame is 0..frameCount-1, x/y are 0
 
 Requirements:
 - SEAMLESS LOOP: the animation must loop perfectly. Every time-dependent term must complete an integer number of cycles over frameCount frames (use phase = frame / frameCount * 2 * Math.PI and integer multiples of it; for moving objects, displacement over the loop must be a multiple of 32 or return to start).
-- This is a physical LED matrix: saturated colors and black backgrounds look great; muddy mid-grays look bad. The panel has 16 brightness levels per channel, so prefer bold contrast over subtle gradients.
+- This is a physical LED matrix: saturated colors and pure-black backgrounds look great; muddy mid-grays look bad. The panel has only 16 brightness levels per channel and CANNOT render dim colors — channel values between 1 and ~50 don't read as a smooth dark shade, they show up as sparse, distractingly lit dots. Never use dim fills, dark ambient glows, or long dark gradient tails. Backgrounds and "dark" areas must be exactly [0, 0, 0]; anything meant to be visible should use channel values of roughly 60+. When fading something out, snap to true black once it drops below that floor instead of trailing through near-black values.
 - 32x32 is tiny: keep compositions simple and readable. One clear subject beats intricate detail.
 - Pick frameCount (8-64) and delayMs (30-150) to suit the motion. Use the full 64 frames only when the motion needs it.
 - The name should be short (1-3 words), evocative, suitable as a gallery label.
