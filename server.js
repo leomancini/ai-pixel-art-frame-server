@@ -78,8 +78,11 @@ function setAnimationFromRGB(rgbFrames, delayMs = 60) {
   pollWaiters = [];
 }
 
-// Seamlessly looping rainbow plasma as the default before any art is set
-function defaultPlasma(frameCount = 48) {
+// ── Preset animations ──────────────────────────────────────────────────────
+// All presets are generated as seamless loops: every time-dependent term
+// completes an integer number of cycles over the frame count.
+
+function plasmaFrames(frameCount = 48) {
   const frames = [];
   for (let i = 0; i < frameCount; i++) {
     const ph = (i / frameCount) * 2 * Math.PI; // one full cycle = clean loop
@@ -101,7 +104,112 @@ function defaultPlasma(frameCount = 48) {
   }
   return frames;
 }
-setAnimationFromRGB(defaultPlasma(), 60);
+
+function starfieldFrames(frameCount = 48) {
+  // Deterministic stars; drift per loop is a multiple of the width so the
+  // loop is seamless. Three parallax layers.
+  const layers = [
+    { count: 14, speed: 2 / 3, bright: 90, tint: [0.7, 0.8, 1] },
+    { count: 10, speed: 4 / 3, bright: 170, tint: [0.85, 0.9, 1] },
+    { count: 6, speed: 2, bright: 255, tint: [1, 1, 1] },
+  ];
+  // simple deterministic pseudo-random
+  let seed = 1234;
+  const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const stars = [];
+  for (const layer of layers) {
+    for (let s = 0; s < layer.count; s++) {
+      stars.push({ x0: rand() * 32, y: Math.floor(rand() * 32), ...layer });
+    }
+  }
+  const frames = [];
+  for (let i = 0; i < frameCount; i++) {
+    const rgb = new Array(FRAME_WIDTH * FRAME_HEIGHT * 3).fill(0);
+    for (const st of stars) {
+      const x = Math.floor((st.x0 + 32 - ((st.speed * i) % 32)) % 32);
+      const o = (st.y * FRAME_WIDTH + x) * 3;
+      rgb[o] = Math.min(255, rgb[o] + st.bright * st.tint[0]);
+      rgb[o + 1] = Math.min(255, rgb[o + 1] + st.bright * st.tint[1]);
+      rgb[o + 2] = Math.min(255, rgb[o + 2] + st.bright * st.tint[2]);
+    }
+    frames.push(rgb.map(Math.floor));
+  }
+  return frames;
+}
+
+function orbitFrames(frameCount = 64) {
+  // A glowing ball on a Lissajous path with a fading trail; hue rotates
+  // once per loop.
+  const frames = [];
+  for (let i = 0; i < frameCount; i++) {
+    const rgb = new Array(FRAME_WIDTH * FRAME_HEIGHT * 3).fill(0);
+    for (let trail = 7; trail >= 0; trail--) {
+      const p = ((i - trail + frameCount) % frameCount) / frameCount;
+      const cx = 16 + 11 * Math.sin(2 * Math.PI * p);
+      const cy = 16 + 11 * Math.sin(4 * Math.PI * p + Math.PI / 3);
+      const hue = 2 * Math.PI * p;
+      const fade = 1 - trail / 9;
+      const cr = (Math.sin(hue) + 1) * 127.5 * fade;
+      const cg = (Math.sin(hue + 2.1) + 1) * 127.5 * fade;
+      const cb = (Math.sin(hue + 4.2) + 1) * 127.5 * fade;
+      for (let y = 0; y < FRAME_HEIGHT; y++) {
+        for (let x = 0; x < FRAME_WIDTH; x++) {
+          const d2 = (x - cx) ** 2 + (y - cy) ** 2;
+          const glow = Math.exp(-d2 / 3.5);
+          if (glow < 0.02) continue;
+          const o = (y * FRAME_WIDTH + x) * 3;
+          rgb[o] = Math.min(255, rgb[o] + cr * glow);
+          rgb[o + 1] = Math.min(255, rgb[o + 1] + cg * glow);
+          rgb[o + 2] = Math.min(255, rgb[o + 2] + cb * glow);
+        }
+      }
+    }
+    frames.push(rgb.map(Math.floor));
+  }
+  return frames;
+}
+
+const presets = {
+  plasma: { name: "Plasma", delayMs: 60, generate: plasmaFrames },
+  starfield: { name: "Starfield", delayMs: 80, generate: starfieldFrames },
+  orbit: { name: "Orbit", delayMs: 40, generate: orbitFrames },
+};
+for (const preset of Object.values(presets)) {
+  preset.frames = preset.generate(); // pre-render at startup
+}
+
+let activePresetKey = "plasma";
+setAnimationFromRGB(presets.plasma.frames, presets.plasma.delayMs);
+
+// List presets for the picker UI
+app.get("/api/presets", (req, res) => {
+  res.json(
+    Object.entries(presets).map(([key, p]) => ({
+      key,
+      name: p.name,
+      frameCount: p.frames.length,
+      delayMs: p.delayMs,
+      active: key === activePresetKey,
+    }))
+  );
+});
+
+// Full frame data for one preset, for canvas previews in the UI
+app.get("/api/presets/:key", (req, res) => {
+  const preset = presets[req.params.key];
+  if (!preset) return res.status(404).json({ error: "unknown preset" });
+  res.set("Cache-Control", "max-age=3600"); // presets are static
+  res.json({ frames: preset.frames, delayMs: preset.delayMs });
+});
+
+// Make a preset the live animation — the frame picks it up via long poll
+app.post("/api/presets/:key/activate", (req, res) => {
+  const preset = presets[req.params.key];
+  if (!preset) return res.status(404).json({ error: "unknown preset" });
+  activePresetKey = req.params.key;
+  setAnimationFromRGB(preset.frames, preset.delayMs);
+  res.json({ id: animation.id, key: activePresetKey });
+});
 
 // Full animation bundle: ANM0, uint32 id, uint16 frameCount, uint16 delayMs,
 // then frameCount * 2048 bytes of RGB565 pixels (all little-endian).
@@ -158,6 +266,7 @@ app.post("/api/animation", (req, res) => {
       });
     }
   }
+  activePresetKey = null; // custom art, no preset active
   setAnimationFromRGB(frames, Math.max(20, Math.min(5000, delayMs)));
   res.json({ id: animation.id, frames: animation.frames.length });
 });
