@@ -81,11 +81,7 @@ const Card = styled.button`
   border: none;
   border-radius: 14px;
   cursor: pointer;
-  transition: transform 0.1s, background 0.15s;
-
-  &:hover {
-    transform: translateY(-2px);
-  }
+  transition: background 0.15s;
 `;
 
 const Preview = styled.canvas`
