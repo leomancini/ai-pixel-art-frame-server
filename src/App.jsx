@@ -71,23 +71,17 @@ const Row = styled.div`
   max-width: 1100px;
 `;
 
-const SectionLabel = styled.div`
-  font-size: 12px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: #555;
-`;
-
 const Card = styled.button`
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 12px;
-  padding: 0;
-  background: none;
+  padding: 12px;
+  background: ${(p) => (p.$active ? "#1e1e26" : "transparent")};
   border: none;
+  border-radius: 14px;
   cursor: pointer;
-  transition: transform 0.1s;
+  transition: transform 0.1s, background 0.15s;
 
   &:hover {
     transform: translateY(-2px);
@@ -212,30 +206,21 @@ function App() {
       </PromptForm>
       <GenerationStatus $error={genError}>{genStatus}</GenerationStatus>
 
-      {gallery.length > 0 && (
-        <>
-          <SectionLabel>Gallery</SectionLabel>
-          <Row>
-            {gallery.map((g) => (
-              <Card
-                key={g.id}
-                $active={g.active}
-                title={g.prompt}
-                onClick={() => activateGallery(g.id)}
-              >
-                <AnimPreview src={`/api/gallery/${g.id}`} />
-                <Name $active={g.active}>{g.name}</Name>
-              </Card>
-            ))}
-          </Row>
-        </>
-      )}
-
-      <SectionLabel>Presets</SectionLabel>
       <Row>
+        {gallery.map((g) => (
+          <Card
+            key={`g-${g.id}`}
+            $active={g.active}
+            title={g.prompt}
+            onClick={() => activateGallery(g.id)}
+          >
+            <AnimPreview src={`/api/gallery/${g.id}`} />
+            <Name $active={g.active}>{g.name}</Name>
+          </Card>
+        ))}
         {presets.map((p) => (
           <Card
-            key={p.key}
+            key={`p-${p.key}`}
             $active={p.active}
             onClick={() => activatePreset(p.key)}
           >
