@@ -15,13 +15,6 @@ const Page = styled.div`
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 `;
 
-const Title = styled.h1`
-  font-size: 22px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  margin: 0;
-`;
-
 const Row = styled.div`
   display: flex;
   gap: 24px;
@@ -58,12 +51,6 @@ const Preview = styled.canvas`
 const Name = styled.div`
   font-size: 15px;
   color: ${(p) => (p.$active ? "#5dd6ff" : "#ccc")};
-`;
-
-const Status = styled.div`
-  font-size: 13px;
-  color: #777;
-  min-height: 1em;
 `;
 
 // Plays a preset's frames on a 32x32 canvas
@@ -106,7 +93,6 @@ function PresetPreview({ presetKey }) {
 
 function App() {
   const [presets, setPresets] = useState([]);
-  const [status, setStatus] = useState("");
 
   useEffect(() => {
     fetch("/api/presets")
@@ -115,20 +101,14 @@ function App() {
   }, []);
 
   const activate = async (key) => {
-    setStatus("Sending to frame…");
     const res = await fetch(`/api/presets/${key}/activate`, { method: "POST" });
     if (res.ok) {
       setPresets((ps) => ps.map((p) => ({ ...p, active: p.key === key })));
-      setStatus("Live on the frame ✓");
-      setTimeout(() => setStatus(""), 2000);
-    } else {
-      setStatus("Failed to update");
     }
   };
 
   return (
     <Page>
-      <Title>AI Pixel Art Frame</Title>
       <Row>
         {presets.map((p) => (
           <Card key={p.key} $active={p.active} onClick={() => activate(p.key)}>
@@ -137,7 +117,6 @@ function App() {
           </Card>
         ))}
       </Row>
-      <Status>{status}</Status>
     </Page>
   );
 }
