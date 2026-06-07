@@ -58,7 +58,7 @@ const GenerateButton = styled.button`
 
 const GenerationStatus = styled.div`
   font-size: 14px;
-  color: ${(p) => (p.$error ? "#ff7a7a" : "#888")};
+  color: ${(p) => (p.$error ? "#fff" : "#888")};
   min-height: 1.2em;
   text-align: center;
 `;
@@ -83,16 +83,14 @@ const Card = styled.button`
   flex-direction: column;
   align-items: center;
   gap: 12px;
-  padding: 16px;
-  background: #16161d;
-  border: 2px solid ${(p) => (p.$active ? "#5dd6ff" : "#26262f")};
-  border-radius: 14px;
+  padding: 0;
+  background: none;
+  border: none;
   cursor: pointer;
-  transition: border-color 0.15s, transform 0.1s;
+  transition: transform 0.1s;
 
   &:hover {
     transform: translateY(-2px);
-    border-color: ${(p) => (p.$active ? "#5dd6ff" : "#3a3a48")};
   }
 `;
 
@@ -106,7 +104,7 @@ const Preview = styled.canvas`
 
 const Name = styled.div`
   font-size: 15px;
-  color: ${(p) => (p.$active ? "#5dd6ff" : "#ccc")};
+  color: ${(p) => (p.$active ? "#fff" : "#888")};
   max-width: 160px;
 `;
 
