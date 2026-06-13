@@ -74,6 +74,6 @@ which builds and restarts the app. Two things the code push does **not** carry:
   boot if `ADMIN_EMAIL` is missing.
 
 On first boot the DB migrates automatically: a `default` frame is created and
-the existing gallery is attached to it (its one-time device key is printed to
-the server log). Re-flash your existing board with a registered frame's
-slug/key, or rename/delete the default frame in the Admin tab.
+the existing gallery is attached to it. Its device key is **not** logged (logs
+persist on disk) — mint one with **rotate key** in the Admin tab before flashing
+a board for it, or rename/delete the default frame there.

@@ -323,9 +323,12 @@ if (db.prepare("SELECT COUNT(*) AS n FROM frames").get().n === 0) {
   db.prepare("UPDATE animations SET frame_id = ? WHERE frame_id IS NULL").run(
     info.lastInsertRowid
   );
+  // NB: do not log the plaintext key — logs persist on disk (e.g. pm2). The
+  // migrated key is intentionally unrecoverable; mint a fresh one from the
+  // Admin panel ("rotate key") before flashing a board for this frame.
   console.log(
     `[migration] seeded 'default' frame (id ${info.lastInsertRowid}); legacy gallery attached.\n` +
-      `[migration] device key for 'default' (shown once): ${key}`
+      `[migration] rotate its device key in the Admin panel to get a key for flashing.`
   );
 }
 
