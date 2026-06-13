@@ -2,6 +2,10 @@ import 'dotenv/config';
 import Anthropic from "@anthropic-ai/sdk";
 import express from "express";
 import Database from "better-sqlite3";
+import cookieParser from "cookie-parser";
+import jwt from "jsonwebtoken";
+import { OAuth2Client } from "google-auth-library";
+import crypto from "node:crypto";
 import vm from "node:vm";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
@@ -9,43 +13,97 @@ import { dirname, join } from "path";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+// ── Configuration ───────────────────────────────────────────────────────────
+const ADMIN_EMAIL = (process.env.ADMIN_EMAIL ?? "").trim().toLowerCase();
+if (!ADMIN_EMAIL) {
+  console.error("[fatal] ADMIN_EMAIL must be set (the sole admin's Google email)");
+  process.exit(1);
+}
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID ?? null;
+if (!GOOGLE_CLIENT_ID) {
+  console.warn("[!] GOOGLE_CLIENT_ID not set — sign-in will be unavailable until it is");
+}
+let SESSION_SECRET = process.env.SESSION_SECRET;
+if (!SESSION_SECRET) {
+  SESSION_SECRET = crypto.randomBytes(32).toString("hex");
+  console.warn("[!] SESSION_SECRET not set — using an ephemeral secret (sessions reset on restart)");
+}
+
 const app = express();
 const port = 3136;
 const anthropic = new Anthropic();
+const googleClient = GOOGLE_CLIENT_ID ? new OAuth2Client(GOOGLE_CLIENT_ID) : null;
 
-
-// SQLite setup
-const db = new Database(join(__dirname, "data.sqlite"));
-db.pragma("journal_mode = WAL");
-
+app.set("trust proxy", true); // honor X-Forwarded-Proto from the Apache reverse proxy
 app.use(express.json({ limit: "16mb" })); // animation frames are large
-
-// Serve static files from dist
+app.use(cookieParser());
 app.use(express.static(join(__dirname, "dist")));
 
-// API endpoint for SQLite queries
-app.post("/api/query", (req, res) => {
-  try {
-    const { sql, params = [] } = req.body;
-    const stmt = db.prepare(sql);
-    if (stmt.reader) {
-      const rows = stmt.all(...params);
-      res.json({ rows });
-    } else {
-      const result = stmt.run(...params);
-      res.json({ result });
-    }
-  } catch (error) {
-    res.status(400).json({ error: error.message });
-  }
-});
+// ── SQLite setup + schema ─────────────────────────────────────────────────────
+const db = new Database(join(__dirname, "data.sqlite"));
+db.pragma("journal_mode = WAL");
+db.pragma("foreign_keys = ON"); // needed for ON DELETE CASCADE
 
-// ── Animation store for the ESP32/MatrixPortal display ────────────────────
+db.exec(`
+  CREATE TABLE IF NOT EXISTS animations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    prompt TEXT NOT NULL,
+    name TEXT NOT NULL,
+    code TEXT NOT NULL,
+    frame_count INTEGER NOT NULL,
+    delay_ms INTEGER NOT NULL,
+    frames BLOB NOT NULL, -- frame_count * 3072 bytes of raw RGB
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT NOT NULL UNIQUE,        -- stored lowercased
+    google_sub TEXT UNIQUE,            -- NULL until first login (pre-provisioned by email)
+    name TEXT,
+    is_admin INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE TABLE IF NOT EXISTS frames (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    slug TEXT NOT NULL UNIQUE,         -- stable id baked into firmware
+    name TEXT NOT NULL,
+    device_key_hash TEXT NOT NULL,     -- sha256 of the device key; plaintext shown once
+    anim_seq INTEGER NOT NULL DEFAULT 1, -- persisted monotonic animation id (restart-safe)
+    active_kind TEXT NOT NULL DEFAULT 'preset', -- 'preset' | 'gallery'
+    active_preset_key TEXT,
+    active_gallery_id INTEGER,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE TABLE IF NOT EXISTS frame_access (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    frame_id INTEGER NOT NULL REFERENCES frames(id) ON DELETE CASCADE,
+    PRIMARY KEY (user_id, frame_id)
+  );
+`);
+
+// Add animations.frame_id if this DB predates multi-frame support.
+const hasFrameId = db
+  .prepare("PRAGMA table_info(animations)")
+  .all()
+  .some((c) => c.name === "frame_id");
+if (!hasFrameId) {
+  db.exec("ALTER TABLE animations ADD COLUMN frame_id INTEGER REFERENCES frames(id)");
+}
+
+const sha256 = (s) => crypto.createHash("sha256").update(s).digest("hex");
+
+// Seed the admin user so they can sign in even before being pre-provisioned.
+db.prepare(
+  "INSERT OR IGNORE INTO users (email, is_admin) VALUES (?, 1)"
+).run(ADMIN_EMAIL);
+
+// ── Animation store for the ESP32/MatrixPortal displays ───────────────────────
 //
-// The board downloads the whole animation once (GET /animation), plays it
-// from RAM, and keeps a long-poll outstanding (GET /poll?id=N) on the same
-// keep-alive connection so it learns about new art within milliseconds.
-// All responses carry Content-Length so proxies never chunk them — the
+// Each frame downloads its whole animation once (GET /animation?frame=SLUG),
+// plays it from RAM, and keeps a long-poll outstanding (GET /poll?frame=SLUG&
+// id=N) on the same keep-alive connection so it learns about new art within
+// milliseconds. Both requests carry the frame's device key in an X-Frame-Key
+// header. All responses carry Content-Length so proxies never chunk them — the
 // firmware does not parse chunked encoding.
 
 const FRAME_WIDTH = 32;
@@ -60,24 +118,21 @@ function rgb565(r, g, b) {
   return ((r & 0xf8) << 8) | ((g & 0xfc) << 3) | (b >> 3);
 }
 
-// Current animation: monotonically increasing id, frames as RGB565 buffers
-let animation = { id: 1, frames: [], delayMs: 60 };
-let pollWaiters = [];
-
-// Replace the animation from RGB frames (each a flat [r,g,b,...] array,
-// row-major 32x32) and wake every long-poller.
-function setAnimationFromRGB(rgbFrames, delayMs = 60) {
-  const frames = rgbFrames.slice(0, MAX_FRAMES).map((rgb) => {
+// Convert flat [r,g,b,...] frames (row-major 32x32) into RGB565 buffers.
+function rgbToBuffers(rgbFrames) {
+  return rgbFrames.slice(0, MAX_FRAMES).map((rgb) => {
     const frame = Buffer.alloc(FRAME_PIXEL_BYTES);
     for (let i = 0; i < FRAME_WIDTH * FRAME_HEIGHT; i++) {
       frame.writeUInt16LE(rgb565(rgb[i * 3], rgb[i * 3 + 1], rgb[i * 3 + 2]), i * 2);
     }
     return frame;
   });
-  animation = { id: animation.id + 1, frames, delayMs };
-  for (const waiter of pollWaiters) waiter();
-  pollWaiters = [];
 }
+
+// In-RAM playback state per frame, keyed by slug. The persisted source of
+// truth lives on the `frames` row (anim_seq + active selection); this Map
+// holds the rasterized RGB565 buffers and the long-poll waiters.
+const runtimes = new Map(); // slug -> { animId, frames, delayMs, pollWaiters, activePresetKey, activeGalleryId }
 
 // ── Preset animations ──────────────────────────────────────────────────────
 // All presets are generated as seamless loops: every time-dependent term
@@ -178,62 +233,114 @@ const presets = {
 for (const preset of Object.values(presets)) {
   preset.frames = preset.generate(); // pre-render at startup
 }
+const DEFAULT_PRESET_KEY = "plasma";
 
-let activePresetKey = "plasma";
-let activeGalleryId = null;
-setAnimationFromRGB(presets.plasma.frames, presets.plasma.delayMs);
+// ── Per-frame state helpers ───────────────────────────────────────────────────
 
-// List presets for the picker UI
-app.get("/api/presets", (req, res) => {
-  res.json(
-    Object.entries(presets).map(([key, p]) => ({
-      key,
-      name: p.name,
-      frameCount: p.frames.length,
-      delayMs: p.delayMs,
-      active: key === activePresetKey,
-    }))
+function galleryRowToFrames(row) {
+  const frames = [];
+  for (let f = 0; f < row.frame_count; f++) {
+    frames.push(Array.from(row.frames.subarray(f * 3072, (f + 1) * 3072)));
+  }
+  return frames;
+}
+
+// Build (or rebuild) a frame's RAM runtime from its persisted active selection.
+// Does NOT bump anim_seq — the device keeps its remembered id across restarts.
+function loadFrameRuntime(frameRow) {
+  const rt = {
+    animId: frameRow.anim_seq,
+    frames: [],
+    delayMs: 60,
+    pollWaiters: [],
+    activePresetKey: null,
+    activeGalleryId: null,
+  };
+  if (frameRow.active_kind === "gallery" && frameRow.active_gallery_id != null) {
+    const row = db
+      .prepare("SELECT * FROM animations WHERE id = ? AND frame_id = ?")
+      .get(frameRow.active_gallery_id, frameRow.id);
+    if (row) {
+      rt.frames = rgbToBuffers(galleryRowToFrames(row));
+      rt.delayMs = row.delay_ms;
+      rt.activeGalleryId = row.id;
+    }
+  }
+  if (rt.frames.length === 0) {
+    // preset selection (or fallback if the gallery item vanished)
+    const key =
+      frameRow.active_preset_key && presets[frameRow.active_preset_key]
+        ? frameRow.active_preset_key
+        : DEFAULT_PRESET_KEY;
+    rt.frames = rgbToBuffers(presets[key].frames);
+    rt.delayMs = presets[key].delayMs;
+    rt.activePresetKey = key;
+  }
+  runtimes.set(frameRow.slug, rt);
+  return rt;
+}
+
+// Persist the new selection + bumped id, then wake this frame's long-pollers.
+// anim_seq is written BEFORE waking waiters so a crash can't lose the bump.
+function bumpFrame(slug, kind, presetKey, galleryId) {
+  const rt = runtimes.get(slug);
+  rt.animId += 1;
+  db.prepare(
+    `UPDATE frames SET anim_seq = ?, active_kind = ?, active_preset_key = ?, active_gallery_id = ?
+     WHERE slug = ?`
+  ).run(rt.animId, kind, presetKey, galleryId, slug);
+  for (const wake of rt.pollWaiters) wake();
+  rt.pollWaiters = [];
+}
+
+function setFramePreset(slug, presetKey) {
+  const rt = runtimes.get(slug);
+  rt.frames = rgbToBuffers(presets[presetKey].frames);
+  rt.delayMs = presets[presetKey].delayMs;
+  rt.activePresetKey = presetKey;
+  rt.activeGalleryId = null;
+  bumpFrame(slug, "preset", presetKey, null);
+}
+
+function setFrameGallery(slug, row) {
+  const rt = runtimes.get(slug);
+  rt.frames = rgbToBuffers(galleryRowToFrames(row));
+  rt.delayMs = row.delay_ms;
+  rt.activePresetKey = null;
+  rt.activeGalleryId = row.id;
+  bumpFrame(slug, "gallery", null, row.id);
+}
+
+// ── First-run migration: seed a default frame and attach the legacy gallery ───
+if (db.prepare("SELECT COUNT(*) AS n FROM frames").get().n === 0) {
+  const key = crypto.randomBytes(24).toString("hex");
+  const info = db
+    .prepare(
+      `INSERT INTO frames (slug, name, device_key_hash, active_kind, active_preset_key)
+       VALUES ('default', 'Default Frame', ?, 'preset', ?)`
+    )
+    .run(sha256(key), DEFAULT_PRESET_KEY);
+  db.prepare("UPDATE animations SET frame_id = ? WHERE frame_id IS NULL").run(
+    info.lastInsertRowid
   );
-});
+  console.log(
+    `[migration] seeded 'default' frame (id ${info.lastInsertRowid}); legacy gallery attached.\n` +
+      `[migration] device key for 'default' (shown once): ${key}`
+  );
+}
 
-// Full frame data for one preset, for canvas previews in the UI
-app.get("/api/presets/:key", (req, res) => {
-  const preset = presets[req.params.key];
-  if (!preset) return res.status(404).json({ error: "unknown preset" });
-  res.set("Cache-Control", "max-age=3600"); // presets are static
-  res.json({ frames: preset.frames, delayMs: preset.delayMs });
-});
-
-// Make a preset the live animation — the frame picks it up via long poll
-app.post("/api/presets/:key/activate", (req, res) => {
-  const preset = presets[req.params.key];
-  if (!preset) return res.status(404).json({ error: "unknown preset" });
-  activePresetKey = req.params.key;
-  activeGalleryId = null;
-  setAnimationFromRGB(preset.frames, preset.delayMs);
-  res.json({ id: animation.id, key: activePresetKey });
-});
+// Load every frame's runtime into RAM at boot.
+for (const frameRow of db.prepare("SELECT * FROM frames").all()) {
+  loadFrameRuntime(frameRow);
+}
 
 // ── AI-generated animations (gallery) ──────────────────────────────────────
 //
 // Claude writes a small deterministic render function rather than raw pixels
 // (64 frames of literal RGB would be ~200K numbers). The server executes it
 // in a node:vm sandbox to rasterize the frames, validates them, and stores
-// the result in SQLite. Generated animations live in the gallery alongside
-// the presets and activate the same way.
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS animations (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    prompt TEXT NOT NULL,
-    name TEXT NOT NULL,
-    code TEXT NOT NULL,
-    frame_count INTEGER NOT NULL,
-    delay_ms INTEGER NOT NULL,
-    frames BLOB NOT NULL, -- frame_count * 3072 bytes of raw RGB
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
-  )
-`);
+// the result in SQLite scoped to a frame. Generated animations live in that
+// frame's gallery alongside the shared presets and activate the same way.
 
 const GENERATOR_SYSTEM_PROMPT = `You write animations for a 32x32 RGB LED matrix (a physical pixel-art frame on a wall).
 
@@ -340,22 +447,205 @@ async function generateAnimation(prompt) {
   }
 }
 
-function galleryRowToFrames(row) {
-  const frames = [];
-  for (let f = 0; f < row.frame_count; f++) {
-    frames.push(Array.from(row.frames.subarray(f * 3072, (f + 1) * 3072)));
+// ── Auth: Google ID token -> our own httpOnly JWT session cookie ──────────────
+
+const SESSION_COOKIE = "session";
+
+function signSession(user) {
+  return jwt.sign(
+    { uid: user.id, email: user.email, name: user.name, isAdmin: !!user.is_admin },
+    SESSION_SECRET,
+    { expiresIn: "30d" }
+  );
+}
+
+function currentUser(req) {
+  const token = req.cookies?.[SESSION_COOKIE];
+  if (!token) return null;
+  try {
+    return jwt.verify(token, SESSION_SECRET);
+  } catch {
+    return null;
   }
-  return frames;
 }
 
-function activateGalleryRow(row) {
-  activePresetKey = null;
-  activeGalleryId = row.id;
-  setAnimationFromRGB(galleryRowToFrames(row), row.delay_ms);
+function requireAuth(req, res, next) {
+  const u = currentUser(req);
+  if (!u) return res.status(401).json({ error: "auth required" });
+  req.user = u;
+  next();
 }
 
-// Generate a new animation from a prompt, save it, and show it on the frame
-app.post("/api/generate", async (req, res) => {
+function requireAdmin(req, res, next) {
+  requireAuth(req, res, () => {
+    if (!req.user.isAdmin) return res.status(403).json({ error: "admin only" });
+    next();
+  });
+}
+
+// Resolves :id to a frame and checks the signed-in user may control it.
+function requireFrameAccess(req, res, next) {
+  requireAuth(req, res, () => {
+    const frame = db.prepare("SELECT * FROM frames WHERE id = ?").get(req.params.id);
+    if (!frame) return res.status(404).json({ error: "frame not found" });
+    if (!req.user.isAdmin) {
+      const has = db
+        .prepare("SELECT 1 FROM frame_access WHERE user_id = ? AND frame_id = ?")
+        .get(req.user.uid, frame.id);
+      if (!has) return res.status(403).json({ error: "no access to this frame" });
+    }
+    req.frame = frame;
+    next();
+  });
+}
+
+// Public config the SPA needs before sign-in
+app.get("/api/config", (req, res) => {
+  res.json({ googleClientId: GOOGLE_CLIENT_ID });
+});
+
+// Exchange a Google ID token for a session. Sign-in is gated: only the admin
+// email or a pre-provisioned user (a row added by the admin) is allowed.
+app.post("/api/auth/google", async (req, res) => {
+  if (!googleClient) {
+    return res.status(503).json({ error: "sign-in is not configured" });
+  }
+  const credential = req.body?.credential;
+  if (!credential) return res.status(400).json({ error: "credential is required" });
+  let payload;
+  try {
+    const ticket = await googleClient.verifyIdToken({
+      idToken: credential,
+      audience: GOOGLE_CLIENT_ID,
+    });
+    payload = ticket.getPayload();
+  } catch {
+    return res.status(401).json({ error: "invalid Google token" });
+  }
+  if (!payload?.email || !payload.email_verified) {
+    return res.status(401).json({ error: "email not verified by Google" });
+  }
+  const email = payload.email.trim().toLowerCase();
+  const isAdmin = email === ADMIN_EMAIL;
+
+  let user = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
+  if (!user && !isAdmin) {
+    return res
+      .status(403)
+      .json({ error: "this account isn't authorized — ask the admin for access" });
+  }
+  if (!user) {
+    db.prepare(
+      "INSERT INTO users (email, google_sub, name, is_admin) VALUES (?, ?, ?, 1)"
+    ).run(email, payload.sub, payload.name ?? null);
+  } else {
+    db.prepare(
+      "UPDATE users SET google_sub = ?, name = COALESCE(?, name), is_admin = ? WHERE id = ?"
+    ).run(payload.sub, payload.name ?? null, isAdmin ? 1 : 0, user.id);
+  }
+  user = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
+
+  res.cookie(SESSION_COOKIE, signSession(user), {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: req.secure, // true behind the TLS proxy, false on http://localhost
+    maxAge: 30 * 24 * 60 * 60 * 1000,
+    path: "/",
+  });
+  res.json({ id: user.id, email: user.email, name: user.name, isAdmin: !!user.is_admin });
+});
+
+app.post("/api/auth/logout", (req, res) => {
+  res.clearCookie(SESSION_COOKIE, { path: "/" });
+  res.json({ ok: true });
+});
+
+app.get("/api/me", (req, res) => {
+  const u = currentUser(req);
+  if (!u) return res.status(401).json({ error: "not signed in" });
+  res.json({ id: u.uid, email: u.email, name: u.name, isAdmin: !!u.isAdmin });
+});
+
+// ── Shared preset endpoints (frame-independent data; activation is per frame) ──
+
+app.get("/api/presets", requireAuth, (req, res) => {
+  res.json(
+    Object.entries(presets).map(([key, p]) => ({
+      key,
+      name: p.name,
+      frameCount: p.frames.length,
+      delayMs: p.delayMs,
+    }))
+  );
+});
+
+app.get("/api/presets/:key", requireAuth, (req, res) => {
+  const preset = presets[req.params.key];
+  if (!preset) return res.status(404).json({ error: "unknown preset" });
+  res.set("Cache-Control", "max-age=3600"); // presets are static
+  res.json({ frames: preset.frames, delayMs: preset.delayMs });
+});
+
+// ── Frame-scoped control endpoints ────────────────────────────────────────────
+
+// Frames the signed-in user may control (admins see all).
+app.get("/api/frames", requireAuth, (req, res) => {
+  const frames = req.user.isAdmin
+    ? db.prepare("SELECT * FROM frames ORDER BY name").all()
+    : db
+        .prepare(
+          `SELECT f.* FROM frames f
+           JOIN frame_access a ON a.frame_id = f.id
+           WHERE a.user_id = ? ORDER BY f.name`
+        )
+        .all(req.user.uid);
+  res.json(
+    frames.map((f) => ({
+      id: f.id,
+      slug: f.slug,
+      name: f.name,
+      active: {
+        kind: f.active_kind,
+        presetKey: f.active_preset_key,
+        galleryId: f.active_gallery_id,
+      },
+    }))
+  );
+});
+
+// One frame's gallery (newest first; no frame data — fetch per-item for previews)
+app.get("/api/frames/:id/gallery", requireFrameAccess, (req, res) => {
+  const rows = db
+    .prepare(
+      `SELECT id, prompt, name, frame_count, delay_ms, created_at
+       FROM animations WHERE frame_id = ? ORDER BY id DESC`
+    )
+    .all(req.frame.id);
+  res.json(
+    rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      prompt: r.prompt,
+      frameCount: r.frame_count,
+      delayMs: r.delay_ms,
+      createdAt: r.created_at,
+      active: r.id === req.frame.active_gallery_id,
+    }))
+  );
+});
+
+// Frame data for one gallery item, for canvas previews
+app.get("/api/frames/:id/gallery/:gid", requireFrameAccess, (req, res) => {
+  const row = db
+    .prepare("SELECT * FROM animations WHERE id = ? AND frame_id = ?")
+    .get(req.params.gid, req.frame.id);
+  if (!row) return res.status(404).json({ error: "not found" });
+  res.set("Cache-Control", "max-age=3600"); // gallery items are immutable
+  res.json({ frames: galleryRowToFrames(row), delayMs: row.delay_ms });
+});
+
+// Generate a new animation from a prompt, save it to this frame, show it.
+app.post("/api/frames/:id/generate", requireFrameAccess, async (req, res) => {
   const prompt = (req.body?.prompt ?? "").trim();
   if (!prompt) return res.status(400).json({ error: "prompt is required" });
   if (prompt.length > 500) {
@@ -366,11 +656,11 @@ app.post("/api/generate", async (req, res) => {
     const blob = Buffer.from(anim.frames.flat());
     const row = db
       .prepare(
-        `INSERT INTO animations (prompt, name, code, frame_count, delay_ms, frames)
-         VALUES (?, ?, ?, ?, ?, ?) RETURNING *`
+        `INSERT INTO animations (prompt, name, code, frame_count, delay_ms, frames, frame_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING *`
       )
-      .get(prompt, anim.name, anim.code, anim.frames.length, anim.delayMs, blob);
-    activateGalleryRow(row);
+      .get(prompt, anim.name, anim.code, anim.frames.length, anim.delayMs, blob, req.frame.id);
+    setFrameGallery(req.frame.slug, row);
     res.json({
       id: row.id,
       name: row.name,
@@ -383,116 +673,244 @@ app.post("/api/generate", async (req, res) => {
   }
 });
 
-// List the gallery (newest first; no frame data — fetch per-item for previews)
-app.get("/api/gallery", (req, res) => {
-  const rows = db
-    .prepare(
-      `SELECT id, prompt, name, frame_count, delay_ms, created_at
-       FROM animations ORDER BY id DESC`
-    )
-    .all();
+// Show a gallery animation on the frame
+app.post("/api/frames/:id/gallery/:gid/activate", requireFrameAccess, (req, res) => {
+  const row = db
+    .prepare("SELECT * FROM animations WHERE id = ? AND frame_id = ?")
+    .get(req.params.gid, req.frame.id);
+  if (!row) return res.status(404).json({ error: "not found" });
+  setFrameGallery(req.frame.slug, row);
+  res.json({ ok: true });
+});
+
+// Remove a gallery animation (falls back to a preset if it was live)
+app.delete("/api/frames/:id/gallery/:gid", requireFrameAccess, (req, res) => {
+  const row = db
+    .prepare("SELECT * FROM animations WHERE id = ? AND frame_id = ?")
+    .get(req.params.gid, req.frame.id);
+  if (!row) return res.status(404).json({ error: "not found" });
+  db.prepare("DELETE FROM animations WHERE id = ?").run(row.id);
+  if (req.frame.active_gallery_id === row.id) {
+    setFramePreset(req.frame.slug, DEFAULT_PRESET_KEY);
+  }
+  res.json({ deleted: true });
+});
+
+// Make a preset the live animation on this frame
+app.post("/api/frames/:id/presets/:key/activate", requireFrameAccess, (req, res) => {
+  if (!presets[req.params.key]) return res.status(404).json({ error: "unknown preset" });
+  setFramePreset(req.frame.slug, req.params.key);
+  res.json({ ok: true });
+});
+
+// ── Admin: frames, users, access ──────────────────────────────────────────────
+
+function slugify(name) {
+  return (
+    name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 40) || "frame"
+  );
+}
+
+app.get("/api/admin/frames", requireAdmin, (req, res) => {
+  const frames = db.prepare("SELECT * FROM frames ORDER BY name").all();
   res.json(
-    rows.map((r) => ({
-      id: r.id,
-      name: r.name,
-      prompt: r.prompt,
-      frameCount: r.frame_count,
-      delayMs: r.delay_ms,
-      createdAt: r.created_at,
-      active: r.id === activeGalleryId,
+    frames.map((f) => ({ id: f.id, slug: f.slug, name: f.name, createdAt: f.created_at }))
+  );
+});
+
+// Register a frame. Returns the plaintext device key ONCE (only the hash is
+// stored) — flash it into that board's secrets.h.
+app.post("/api/admin/frames", requireAdmin, (req, res) => {
+  const name = (req.body?.name ?? "").trim();
+  if (!name) return res.status(400).json({ error: "name is required" });
+  let slug = slugify(name);
+  const base = slug;
+  for (let n = 2; db.prepare("SELECT 1 FROM frames WHERE slug = ?").get(slug); n++) {
+    slug = `${base}-${n}`;
+  }
+  const key = crypto.randomBytes(24).toString("hex");
+  const info = db
+    .prepare(
+      `INSERT INTO frames (slug, name, device_key_hash, active_kind, active_preset_key)
+       VALUES (?, ?, ?, 'preset', ?)`
+    )
+    .run(slug, name, sha256(key), DEFAULT_PRESET_KEY);
+  loadFrameRuntime(db.prepare("SELECT * FROM frames WHERE id = ?").get(info.lastInsertRowid));
+  res.json({ id: info.lastInsertRowid, slug, name, deviceKey: key });
+});
+
+app.patch("/api/admin/frames/:id", requireAdmin, (req, res) => {
+  const frame = db.prepare("SELECT * FROM frames WHERE id = ?").get(req.params.id);
+  if (!frame) return res.status(404).json({ error: "not found" });
+  const name = (req.body?.name ?? "").trim();
+  if (!name) return res.status(400).json({ error: "name is required" });
+  db.prepare("UPDATE frames SET name = ? WHERE id = ?").run(name, frame.id);
+  res.json({ ok: true });
+});
+
+// Rotate a frame's device key (returns the new plaintext once).
+app.post("/api/admin/frames/:id/key", requireAdmin, (req, res) => {
+  const frame = db.prepare("SELECT * FROM frames WHERE id = ?").get(req.params.id);
+  if (!frame) return res.status(404).json({ error: "not found" });
+  const key = crypto.randomBytes(24).toString("hex");
+  db.prepare("UPDATE frames SET device_key_hash = ? WHERE id = ?").run(sha256(key), frame.id);
+  res.json({ deviceKey: key });
+});
+
+app.delete("/api/admin/frames/:id", requireAdmin, (req, res) => {
+  const frame = db.prepare("SELECT * FROM frames WHERE id = ?").get(req.params.id);
+  if (!frame) return res.status(404).json({ error: "not found" });
+  db.prepare("DELETE FROM animations WHERE frame_id = ?").run(frame.id);
+  db.prepare("DELETE FROM frames WHERE id = ?").run(frame.id); // frame_access cascades
+  runtimes.delete(frame.slug);
+  res.json({ deleted: true });
+});
+
+app.get("/api/admin/users", requireAdmin, (req, res) => {
+  const users = db
+    .prepare("SELECT id, email, name, is_admin, google_sub, created_at FROM users ORDER BY email")
+    .all();
+  const access = db.prepare("SELECT user_id, frame_id FROM frame_access").all();
+  const byUser = {};
+  for (const a of access) (byUser[a.user_id] ??= []).push(a.frame_id);
+  res.json(
+    users.map((u) => ({
+      id: u.id,
+      email: u.email,
+      name: u.name,
+      isAdmin: !!u.is_admin,
+      linked: !!u.google_sub, // has signed in at least once
+      frameIds: byUser[u.id] ?? [],
     }))
   );
 });
 
-// Frame data for one gallery item, for canvas previews
-app.get("/api/gallery/:id", (req, res) => {
-  const row = db
-    .prepare(`SELECT * FROM animations WHERE id = ?`)
-    .get(req.params.id);
-  if (!row) return res.status(404).json({ error: "not found" });
-  res.set("Cache-Control", "max-age=3600"); // gallery items are immutable
-  res.json({ frames: galleryRowToFrames(row), delayMs: row.delay_ms });
+// Pre-provision a user by email so they're allowed to sign in.
+app.post("/api/admin/users", requireAdmin, (req, res) => {
+  const email = (req.body?.email ?? "").trim().toLowerCase();
+  if (!email || !email.includes("@")) {
+    return res.status(400).json({ error: "a valid email is required" });
+  }
+  if (db.prepare("SELECT 1 FROM users WHERE email = ?").get(email)) {
+    return res.status(409).json({ error: "that user already exists" });
+  }
+  const info = db
+    .prepare("INSERT INTO users (email, is_admin) VALUES (?, ?)")
+    .run(email, email === ADMIN_EMAIL ? 1 : 0);
+  res.json({ id: info.lastInsertRowid, email });
 });
 
-// Show a gallery animation on the frame
-app.post("/api/gallery/:id/activate", (req, res) => {
-  const row = db
-    .prepare(`SELECT * FROM animations WHERE id = ?`)
-    .get(req.params.id);
-  if (!row) return res.status(404).json({ error: "not found" });
-  activateGalleryRow(row);
-  res.json({ id: animation.id, galleryId: row.id });
-});
-
-// Remove a gallery animation
-app.delete("/api/gallery/:id", (req, res) => {
-  const result = db
-    .prepare(`DELETE FROM animations WHERE id = ?`)
-    .run(req.params.id);
-  if (result.changes === 0) return res.status(404).json({ error: "not found" });
-  if (activeGalleryId === Number(req.params.id)) activeGalleryId = null;
+app.delete("/api/admin/users/:id", requireAdmin, (req, res) => {
+  const user = db.prepare("SELECT * FROM users WHERE id = ?").get(req.params.id);
+  if (!user) return res.status(404).json({ error: "not found" });
+  if (user.email === ADMIN_EMAIL) {
+    return res.status(400).json({ error: "cannot remove the admin" });
+  }
+  db.prepare("DELETE FROM users WHERE id = ?").run(user.id); // frame_access cascades
   res.json({ deleted: true });
 });
+
+app.post("/api/admin/access", requireAdmin, (req, res) => {
+  const { userId, frameId } = req.body ?? {};
+  if (!userId || !frameId) {
+    return res.status(400).json({ error: "userId and frameId are required" });
+  }
+  if (
+    !db.prepare("SELECT 1 FROM users WHERE id = ?").get(userId) ||
+    !db.prepare("SELECT 1 FROM frames WHERE id = ?").get(frameId)
+  ) {
+    return res.status(404).json({ error: "user or frame not found" });
+  }
+  db.prepare(
+    "INSERT OR IGNORE INTO frame_access (user_id, frame_id) VALUES (?, ?)"
+  ).run(userId, frameId);
+  res.json({ ok: true });
+});
+
+app.delete("/api/admin/access", requireAdmin, (req, res) => {
+  const { userId, frameId } = req.body ?? {};
+  if (!userId || !frameId) {
+    return res.status(400).json({ error: "userId and frameId are required" });
+  }
+  db.prepare("DELETE FROM frame_access WHERE user_id = ? AND frame_id = ?").run(
+    userId,
+    frameId
+  );
+  res.json({ ok: true });
+});
+
+// ── Device protocol (no cookie; identified by ?frame=SLUG + X-Frame-Key) ──────
+
+// Resolve and authenticate a device request; sends an error response and
+// returns null on failure, otherwise returns the frame's runtime.
+function authDevice(req, res) {
+  const slug = req.query.frame;
+  if (!slug) {
+    res.status(400).json({ error: "frame query param required" });
+    return null;
+  }
+  const frame = db.prepare("SELECT * FROM frames WHERE slug = ?").get(slug);
+  if (!frame) {
+    res.status(404).json({ error: "unknown frame" });
+    return null;
+  }
+  const key = req.get("X-Frame-Key") ?? "";
+  if (!key || sha256(key) !== frame.device_key_hash) {
+    res.status(401).json({ error: "bad device key" });
+    return null;
+  }
+  const rt = runtimes.get(slug);
+  if (!rt) {
+    res.status(503).json({ error: "frame not ready" });
+    return null;
+  }
+  return rt;
+}
 
 // Full animation bundle: ANM0, uint32 id, uint16 frameCount, uint16 delayMs,
 // then frameCount * 2048 bytes of RGB565 pixels (all little-endian).
 app.get("/animation", (req, res) => {
+  const rt = authDevice(req, res);
+  if (!rt) return;
   const header = Buffer.alloc(12);
   ANIM_MAGIC.copy(header, 0);
-  header.writeUInt32LE(animation.id, 4);
-  header.writeUInt16LE(animation.frames.length, 8);
-  header.writeUInt16LE(animation.delayMs, 10);
+  header.writeUInt32LE(rt.animId, 4);
+  header.writeUInt16LE(rt.frames.length, 8);
+  header.writeUInt16LE(rt.delayMs, 10);
   res.set("Content-Type", "application/octet-stream");
   res.set("Cache-Control", "no-store");
-  res.send(Buffer.concat([header, ...animation.frames]));
+  res.send(Buffer.concat([header, ...rt.frames]));
 });
 
-// Long poll: responds "ID <n>\n" as soon as the animation id differs from
-// the client's, or after POLL_HOLD_MS with the (unchanged) current id.
+// Long poll: responds "ID <n>\n" as soon as the frame's animation id differs
+// from the client's, or after POLL_HOLD_MS with the (unchanged) current id.
 app.get("/poll", (req, res) => {
+  const rt = authDevice(req, res);
+  if (!rt) return;
   const clientId = parseInt(req.query.id, 10) || 0;
   const respond = () => {
     res.set("Content-Type", "text/plain");
     res.set("Cache-Control", "no-store");
-    res.send(`ID ${animation.id}\n`);
+    res.send(`ID ${rt.animId}\n`);
   };
-  if (animation.id !== clientId) return respond();
+  if (rt.animId !== clientId) return respond();
   const timer = setTimeout(() => {
-    pollWaiters = pollWaiters.filter((w) => w !== wake);
+    rt.pollWaiters = rt.pollWaiters.filter((w) => w !== wake);
     respond();
   }, POLL_HOLD_MS);
   const wake = () => {
     clearTimeout(timer);
     respond();
   };
-  pollWaiters.push(wake);
+  rt.pollWaiters.push(wake);
   res.on("close", () => {
     clearTimeout(timer);
-    pollWaiters = pollWaiters.filter((w) => w !== wake);
+    rt.pollWaiters = rt.pollWaiters.filter((w) => w !== wake);
   });
-});
-
-// Push new art: { frames: [[r,g,b,...], ...], delayMs } — each frame a flat
-// 3072-element array. The board picks it up via its outstanding long poll.
-app.post("/api/animation", (req, res) => {
-  const { frames, delayMs = 60 } = req.body ?? {};
-  if (!Array.isArray(frames) || frames.length === 0) {
-    return res.status(400).json({ error: "frames must be a non-empty array" });
-  }
-  if (frames.length > MAX_FRAMES) {
-    return res.status(400).json({ error: `at most ${MAX_FRAMES} frames` });
-  }
-  for (const f of frames) {
-    if (!Array.isArray(f) || f.length !== FRAME_WIDTH * FRAME_HEIGHT * 3) {
-      return res.status(400).json({
-        error: `each frame must be a flat RGB array of ${FRAME_WIDTH * FRAME_HEIGHT * 3} values`,
-      });
-    }
-  }
-  activePresetKey = null; // custom art, no preset active
-  activeGalleryId = null;
-  setAnimationFromRGB(frames, Math.max(20, Math.min(5000, delayMs)));
-  res.json({ id: animation.id, frames: animation.frames.length });
 });
 
 // SPA fallback
@@ -503,4 +921,3 @@ app.get("*", (req, res) => {
 app.listen(port, () => {
   console.log(`Server is running at http://localhost:${port}`);
 });
-
