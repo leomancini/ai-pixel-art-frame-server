@@ -38,6 +38,8 @@ body {
   font-weight: normal;
   font-synthesis: none;
   text-transform: uppercase;
+  -webkit-user-select: none;
+  user-select: none;
   -webkit-font-smoothing: none;
   -moz-osx-font-smoothing: unset;
   font-smooth: never;
@@ -54,6 +56,14 @@ textarea,
 select {
   font-family: var(--pixel-font);
   text-transform: uppercase;
+}
+
+/* Allow text selection only in editable text fields; white caret. */
+input,
+textarea {
+  -webkit-user-select: text;
+  user-select: text;
+  caret-color: #fff;
 }
 
 input::placeholder,

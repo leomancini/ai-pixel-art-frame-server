@@ -14,7 +14,7 @@ export const Page = styled.div`
   flex-direction: column;
   align-items: center;
   gap: 32px;
-  padding: 32px 24px 64px;
+  padding: 16px;
   background: #000;
   color: #eee;
   font-family: var(--pixel-font);
@@ -141,11 +141,13 @@ export const Header = styled.div`
 
 export const Row = styled.div`
   display: flex;
-  gap: 24px;
+  gap: 16px;
   flex-wrap: wrap;
   justify-content: center;
   max-width: 1100px;
   @media (max-width: 640px) {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
     width: 92vw;
   }
 `;

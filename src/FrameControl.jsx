@@ -4,6 +4,13 @@ import { api } from "./api";
 import AnimPreview from "./AnimPreview";
 import { Input, Button, Row } from "./ui";
 
+const Content = styled.div`
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 28px;
+`;
+
 const PromptForm = styled.form`
   display: flex;
   gap: 10px;
@@ -12,6 +19,7 @@ const PromptForm = styled.form`
   @media (max-width: 640px) {
     flex-direction: column;
     align-items: stretch;
+    gap: 16px;
     width: 92vw;
   }
 `;
@@ -27,30 +35,34 @@ const Card = styled.div`
   position: relative;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: stretch;
+  min-width: 0;
   gap: 12px;
   padding: 12px;
-  background: ${(p) => (p.$active ? "#1e1e1e" : "transparent")};
+  background: #000;
   border: none;
+  box-shadow: inset 0 0 0 2px ${(p) => (p.$active ? "#fff" : "#555")};
   border-radius: 14px;
   cursor: pointer;
   transition: background 0.15s, transform 0.15s ease;
-  &:hover {
-    transform: scale(1.04);
+  @media (hover: hover) {
+    &:hover {
+      transform: scale(1.04);
+    }
   }
   &:active {
     transform: scale(0.96);
   }
-  @media (max-width: 640px) {
-    width: 100%;
-  }
 `;
 
 const Name = styled.div`
+  width: 100%;
   font-size: 20px;
   color: ${(p) => (p.$active ? "#fff" : "#888")};
-  max-width: 160px;
   text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 `;
 
 const DeleteX = styled.button`
@@ -137,7 +149,7 @@ export default function FrameControl({ frame, refresh }) {
   };
 
   return (
-    <>
+    <Content>
       <PromptForm onSubmit={generate}>
         <Input
           as="textarea"
@@ -155,7 +167,7 @@ export default function FrameControl({ frame, refresh }) {
           {generating ? "Generating…" : "Generate"}
         </Button>
       </PromptForm>
-      <Status $error={error}>{status}</Status>
+      {status && <Status $error={error}>{status}</Status>}
 
       <Row>
         {gallery.map((g) => (
@@ -183,6 +195,6 @@ export default function FrameControl({ frame, refresh }) {
           </Card>
         ))}
       </Row>
-    </>
+    </Content>
   );
 }
