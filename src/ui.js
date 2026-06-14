@@ -41,13 +41,13 @@ export const Muted = styled.div`
 
 export const Title = styled.h1`
   font-size: 40px;
-  font-weight: 600;
+  font-weight: normal;
   margin: 0;
 `;
 
 export const SectionTitle = styled.h2`
   font-size: 20px;
-  font-weight: 600;
+  font-weight: normal;
   color: #aaa;
   margin: 0 0 4px;
   text-transform: uppercase;
@@ -130,10 +130,22 @@ export const Tab = styled.button`
   cursor: pointer;
 `;
 
+export const Header = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: center;
+  width: ${(p) => (p.$wide ? "min(900px, 92vw)" : "min(560px, 92vw)")};
+`;
+
 export const Row = styled.div`
   display: flex;
   gap: 24px;
   flex-wrap: wrap;
   justify-content: center;
   max-width: 1100px;
+  @media (max-width: 640px) {
+    width: 92vw;
+  }
 `;

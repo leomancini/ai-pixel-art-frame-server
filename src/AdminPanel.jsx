@@ -7,7 +7,7 @@ const Wrap = styled.div`
   display: flex;
   flex-direction: column;
   gap: 36px;
-  width: min(760px, 92vw);
+  width: 100%;
 `;
 
 const Section = styled.div`
@@ -25,10 +25,7 @@ const Item = styled.div`
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 12px 14px;
-  background: #161616;
-  border: 1px solid #222;
-  border-radius: 12px;
+  padding: 12px 0;
 `;
 
 const Grow = styled.div`
@@ -43,10 +40,7 @@ const Sub = styled.div`
 `;
 
 const KeyBox = styled.div`
-  padding: 12px 14px;
-  background: #161616;
-  border: 1px solid #555;
-  border-radius: 12px;
+  padding: 12px 0;
   font-size: 20px;
   color: #ddd;
   word-break: break-all;

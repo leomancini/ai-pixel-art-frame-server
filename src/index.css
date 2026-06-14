@@ -20,10 +20,23 @@ body {
   background: #000;
 }
 
+b,
+strong,
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-weight: normal;
+}
+
 body {
   margin: 0;
   font-family: var(--pixel-font);
   font-size: 20px;
+  font-weight: normal;
+  font-synthesis: none;
   text-transform: uppercase;
   -webkit-font-smoothing: none;
   -moz-osx-font-smoothing: unset;

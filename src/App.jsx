@@ -1,31 +1,53 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import styled from "styled-components";
 import { api, setUnauthorizedHandler } from "./api";
-import { Page, Centered, Muted, Tab, GhostButton, Input, SectionTitle } from "./ui";
+import { Page, Centered, Muted, Tab, GhostButton, Input, Header } from "./ui";
 import Login from "./Login";
 import FrameControl from "./FrameControl";
 import AdminPanel from "./AdminPanel";
 
-const Header = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-  justify-content: center;
-  width: min(1100px, 92vw);
-`;
-
 const Settings = styled.div`
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 20px;
-  width: min(1100px, 92vw);
+  align-items: stretch;
+  gap: 24px;
+  width: ${(p) => (p.$wide ? "min(900px, 92vw)" : "min(560px, 92vw)")};
+  text-align: left;
 `;
 
-const Who = styled.div`
-  font-size: 20px;
+const SettingsList = styled.div`
+  display: flex;
+  flex-direction: column;
+`;
+
+const SettingRow = styled.div`
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 16px 0;
+`;
+
+const RowLabel = styled.div`
   color: #888;
+  text-align: left;
+`;
+
+const RowValue = styled.div`
+  width: 100%;
+  color: #eee;
+  text-align: left;
+  overflow-wrap: anywhere;
+`;
+
+const LogoutButton = styled(GhostButton)`
+  width: 100%;
+  color: #ff5555;
+  border-color: #ff5555;
+  &:hover {
+    color: #ff6b6b;
+    border-color: #ff6b6b;
+  }
 `;
 
 const FrameLabel = styled.div`
@@ -78,8 +100,7 @@ const GearIcon = () => (
 
 const NickForm = styled.form`
   display: flex;
-  gap: 10px;
-  width: min(560px, 92vw);
+  width: 100%;
 `;
 
 // Lets a user rename a frame they can access. Auto-saves (debounced) as they
@@ -107,6 +128,12 @@ function FrameName({ frame, onSaved }) {
         onChange={(e) => setName(e.target.value)}
         placeholder="Frame name"
         maxLength={60}
+        spellCheck={false}
+        autoComplete="off"
+        autoCorrect="off"
+        autoCapitalize="off"
+        data-1p-ignore="true"
+        data-lpignore="true"
       />
     </NickForm>
   );
@@ -158,7 +185,7 @@ function Main({ user }) {
 
   return (
     <Page>
-      <Header>
+      <Header $wide={user.isAdmin}>
         <FrameLabel>{selected ? selected.name : ""}</FrameLabel>
         <IconButton
           $active={view === "settings"}
@@ -171,17 +198,24 @@ function Main({ user }) {
       </Header>
 
       {view === "settings" ? (
-        <Settings>
-          <Who>{user.email}</Who>
-          {!user.isAdmin && frames?.length > 0 && (
-            <>
-              <SectionTitle>Frame name</SectionTitle>
-              {frames.map((f) => (
-                <FrameName key={f.id} frame={f} onSaved={loadFrames} />
+        <Settings $wide={user.isAdmin}>
+          <SettingsList>
+            <SettingRow>
+              <RowLabel>Account</RowLabel>
+              <RowValue>{user.email}</RowValue>
+            </SettingRow>
+            {!user.isAdmin &&
+              frames?.length > 0 &&
+              frames.map((f) => (
+                <SettingRow key={f.id}>
+                  <RowLabel>Frame name</RowLabel>
+                  <FrameName frame={f} onSaved={loadFrames} />
+                </SettingRow>
               ))}
-            </>
-          )}
-          <GhostButton onClick={logout}>Sign out</GhostButton>
+            <SettingRow>
+              <LogoutButton onClick={logout}>Log out</LogoutButton>
+            </SettingRow>
+          </SettingsList>
           {user.isAdmin && <AdminPanel onFramesChanged={loadFrames} />}
         </Settings>
       ) : frames === null ? (
@@ -194,7 +228,7 @@ function Main({ user }) {
       ) : (
         <>
           {frames.length > 1 && (
-            <Header>
+            <Header $wide={user.isAdmin}>
               {frames.map((f) => (
                 <Tab
                   key={f.id}

@@ -41,6 +41,9 @@ const Card = styled.div`
   &:active {
     transform: scale(0.96);
   }
+  @media (max-width: 640px) {
+    width: 100%;
+  }
 `;
 
 const Name = styled.div`
