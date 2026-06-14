@@ -1,8 +1,29 @@
 import React, { useEffect, useState } from "react";
-import styled from "styled-components";
+import styled, { keyframes } from "styled-components";
 import { api } from "./api";
 import AnimPreview from "./AnimPreview";
 import { Input, Button, Row } from "./ui";
+
+// Verbs cycled through as the loading-card title while an animation generates.
+const LOADING_VERBS = [
+  "Painting", "Dreaming", "Conjuring", "Rendering", "Imagining", "Sketching",
+  "Pixelating", "Glowing", "Shimmering", "Weaving", "Summoning", "Brewing",
+  "Forging", "Sculpting", "Animating", "Crafting", "Generating", "Blooming",
+  "Swirling", "Drifting", "Pulsing", "Flickering", "Dancing", "Twinkling",
+  "Spinning", "Morphing", "Blending", "Composing", "Designing", "Coloring",
+  "Illuminating", "Materializing", "Manifesting", "Doodling", "Drawing",
+  "Inventing", "Creating", "Building", "Assembling", "Wandering", "Floating",
+  "Cascading", "Rippling", "Radiating", "Beaming", "Sparkling", "Drizzling",
+  "Scattering", "Gathering", "Forming", "Shaping", "Molding", "Etching",
+  "Tracing", "Plotting", "Mapping", "Charting", "Scripting", "Calculating",
+  "Computing", "Processing", "Synthesizing", "Fabricating", "Producing",
+  "Hatching", "Growing", "Blossoming", "Flourishing", "Unfolding", "Emerging",
+  "Awakening", "Igniting", "Kindling", "Sparking", "Charging", "Energizing",
+  "Vibrating", "Oscillating", "Resonating", "Humming", "Buzzing", "Whirring",
+  "Spiraling", "Orbiting", "Looping", "Cycling", "Rotating", "Tumbling",
+  "Bouncing", "Gliding", "Soaring", "Diving", "Surging", "Flowing",
+  "Streaming", "Pouring", "Polishing", "Refining", "Tinkering", "Cooking",
+];
 
 const Content = styled.div`
   display: flex;
@@ -38,7 +59,7 @@ const Card = styled.div`
   align-items: stretch;
   min-width: 0;
   gap: 12px;
-  padding: 12px;
+  padding: 12px 12px 18px;
   background: #000;
   border: none;
   box-shadow: inset 0 0 0 2px ${(p) => (p.$active ? "#fff" : "#555")};
@@ -53,6 +74,15 @@ const Card = styled.div`
   &:active {
     transform: scale(0.96);
   }
+`;
+
+const pulse = keyframes`
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 1; }
+`;
+
+const LoadingCard = styled(Card)`
+  animation: ${pulse} 1.4s ease-in-out infinite;
 `;
 
 const Name = styled.div`
@@ -96,6 +126,17 @@ export default function FrameControl({ frame, refresh }) {
   const [generating, setGenerating] = useState(false);
   const [status, setStatus] = useState("");
   const [error, setError] = useState(false);
+  const [verb, setVerb] = useState(LOADING_VERBS[0]);
+
+  // Cycle through random verbs while generating.
+  useEffect(() => {
+    if (!generating) return;
+    const pick = () =>
+      setVerb(LOADING_VERBS[Math.floor(Math.random() * LOADING_VERBS.length)]);
+    pick();
+    const id = setInterval(pick, 3000);
+    return () => clearInterval(id);
+  }, [generating]);
 
   const loadLists = () => {
     api.get(`/api/frames/${frame.id}/gallery`).then(setGallery).catch(() => {});
@@ -109,17 +150,15 @@ export default function FrameControl({ frame, refresh }) {
 
   const generate = async (e) => {
     e.preventDefault();
-    if (!prompt.trim() || generating) return;
+    const text = prompt.trim();
+    if (!text || generating) return;
     setGenerating(true);
     setError(false);
-    setStatus("Generating… this takes up to a minute");
+    setStatus("");
+    setPrompt(""); // clear + disable the textarea immediately
     try {
-      const data = await api.post(`/api/frames/${frame.id}/generate`, {
-        prompt: prompt.trim(),
-      });
-      setPrompt("");
-      setStatus(`"${data.name}" is live on ${frame.name}`);
-      setTimeout(() => setStatus(""), 4000);
+      await api.post(`/api/frames/${frame.id}/generate`, { prompt: text });
+      // Server activates the new animation; reload so it shows as selected.
       loadLists();
       refresh();
     } catch (err) {
@@ -156,7 +195,7 @@ export default function FrameControl({ frame, refresh }) {
           rows={3}
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
-          placeholder="Describe an animation… e.g. rain on a city skyline"
+          placeholder="Describe an animation"
           maxLength={500}
           disabled={generating}
           autoComplete="off"
@@ -164,12 +203,18 @@ export default function FrameControl({ frame, refresh }) {
           data-lpignore="true"
         />
         <Button type="submit" disabled={generating || !prompt.trim()}>
-          {generating ? "Generating…" : "Generate"}
+          Create
         </Button>
       </PromptForm>
       {status && <Status $error={error}>{status}</Status>}
 
       <Row>
+        {generating && (
+          <LoadingCard>
+            <AnimPreview shimmer />
+            <Name>{verb}</Name>
+          </LoadingCard>
+        )}
         {gallery.map((g) => (
           <Card
             key={`g-${g.id}`}

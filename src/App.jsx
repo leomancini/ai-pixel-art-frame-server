@@ -186,7 +186,9 @@ function Main({ user }) {
   return (
     <Page>
       <Header $wide={user.isAdmin}>
-        <FrameLabel>{selected ? selected.name : ""}</FrameLabel>
+        <FrameLabel>
+          {frames === null ? "Loading…" : selected ? selected.name : ""}
+        </FrameLabel>
         <IconButton
           $active={view === "settings"}
           onClick={() => goto(view === "settings" ? "frames" : "settings")}
@@ -218,9 +220,7 @@ function Main({ user }) {
           </SettingsList>
           {user.isAdmin && <AdminPanel onFramesChanged={loadFrames} />}
         </Settings>
-      ) : frames === null ? (
-        <Muted>Loading…</Muted>
-      ) : frames.length === 0 ? (
+      ) : frames === null ? null : frames.length === 0 ? (
         <Muted>
           No frames assigned to you yet.
           {user.isAdmin ? " Add one in Settings (gear, top right)." : " Ask the admin for access."}
@@ -251,6 +251,7 @@ function Main({ user }) {
 
 export default function App() {
   const [user, setUser] = useState(undefined); // undefined = loading, null = signed out
+  const [fontReady, setFontReady] = useState(false);
 
   const loadMe = useCallback(
     () => api.get("/api/me").then(setUser).catch(() => setUser(null)),
@@ -261,8 +262,26 @@ export default function App() {
     loadMe();
   }, [loadMe]);
 
-  if (user === undefined) {
-    // Show a plain black page until we know the auth state.
+  // Don't render any text until the pixel font is loaded (avoids a fallback flash).
+  useEffect(() => {
+    let cancelled = false;
+    const done = () => !cancelled && setFontReady(true);
+    const fonts = document.fonts;
+    if (fonts?.load) {
+      fonts
+        .load('20px "Analog Mono Plus"')
+        .then(() => fonts.ready)
+        .then(done, done);
+    } else {
+      done();
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (!fontReady || user === undefined) {
+    // Plain black page until the font is loaded and we know the auth state.
     return <Centered />;
   }
   if (!user) return <Login onSignedIn={loadMe} />;

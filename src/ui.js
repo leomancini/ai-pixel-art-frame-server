@@ -67,8 +67,16 @@ export const Input = styled.input`
   &:focus {
     border-color: #fff;
   }
-  &::placeholder {
+  &:disabled {
+    opacity: 1;
+    color: #eee;
+    -webkit-text-fill-color: #eee;
+  }
+  &::placeholder,
+  &:disabled::placeholder {
     color: #666;
+    -webkit-text-fill-color: #666;
+    opacity: 1;
   }
 `;
 
