@@ -80,11 +80,19 @@ button {
   -webkit-user-select: none;
   user-select: none;
   -webkit-touch-callout: none;
-  transition: transform 0.12s ease;
+  transition: none;
 }
 
-button:active:not(:disabled) {
-  transform: scale(0.96);
+/* Hover feedback only on devices that actually hover (desktop). */
+@media (hover: hover) {
+  button:not(:disabled):hover {
+    opacity: 0.85;
+  }
+}
+
+/* Instant press feedback for every button. */
+button:not(:disabled):active {
+  opacity: 0.55;
 }
 
 /* Center all text on mobile. */

@@ -35,10 +35,6 @@ const SignInButton = styled.button`
   border-radius: 12px;
   cursor: pointer;
   white-space: nowrap;
-  transition: transform 0.06s ease;
-  &:active {
-    transform: scale(0.96);
-  }
   &:disabled {
     opacity: 0.4;
     cursor: default;
@@ -58,6 +54,7 @@ export default function Login({ onSignedIn }) {
   const hostRef = useRef(null);
   const [error, setError] = useState("");
   const [ready, setReady] = useState(false);
+  const [signingIn, setSigningIn] = useState(false);
 
   // Click the real (hidden) Google button to launch the popup; fall back to
   // One Tap if the rendered button isn't there yet.
@@ -86,10 +83,14 @@ export default function Login({ onSignedIn }) {
           window.google.accounts.id.initialize({
             client_id: googleClientId,
             callback: async (resp) => {
+              // Swap to the loading screen immediately so the start page
+              // doesn't flash back while we exchange the token.
+              setSigningIn(true);
               try {
                 await api.post("/api/auth/google", { credential: resp.credential });
                 onSignedIn();
               } catch (e) {
+                setSigningIn(false);
                 setError(e.message);
               }
             },
@@ -109,6 +110,17 @@ export default function Login({ onSignedIn }) {
       cancelled = true;
     };
   }, [onSignedIn]);
+
+  // While signing in, show just the title (loading) — no start button flash.
+  if (signingIn) {
+    return (
+      <Centered>
+        <Title>
+          AI Pixel <MobileBreak />Art Frame
+        </Title>
+      </Centered>
+    );
+  }
 
   return (
     <Centered>

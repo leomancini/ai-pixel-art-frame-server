@@ -44,10 +44,6 @@ const LogoutButton = styled(GhostButton)`
   width: 100%;
   color: #ff5555;
   border-color: #ff5555;
-  &:hover {
-    color: #ff6b6b;
-    border-color: #ff6b6b;
-  }
 `;
 
 const FrameLabel = styled.div`
@@ -73,12 +69,6 @@ const IconButton = styled.button`
   border: none;
   border-radius: 10px;
   cursor: pointer;
-  &:hover {
-    color: ${(p) => (p.$active ? "#111" : "#fff")};
-  }
-  &:active:not(:disabled) {
-    transform: none;
-  }
 `;
 
 const GearIcon = () => (
@@ -178,7 +168,7 @@ function Main({ user }) {
 
   const logout = async () => {
     await api.post("/api/auth/logout");
-    window.location.reload();
+    window.location.href = "/"; // back to root, not /settings
   };
 
   const selected = frames?.find((f) => f.id === selectedId) ?? null;

@@ -55,6 +55,7 @@ const Status = styled.div`
 // A native <button> so iOS reliably fires click (tap-to-select).
 const Card = styled.button`
   position: relative;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -69,13 +70,9 @@ const Card = styled.button`
   cursor: pointer;
   color: inherit;
   font: inherit;
-  transition: background 0.15s, transform 0.15s ease;
   /* Inner content shouldn't swallow taps; the button handles them. */
   & > * {
     pointer-events: none;
-  }
-  &:active {
-    transform: scale(0.96);
   }
 `;
 

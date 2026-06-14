@@ -118,10 +118,6 @@ export const GhostButton = styled.button`
   border-radius: 10px;
   cursor: pointer;
   white-space: nowrap;
-  &:hover {
-    border-color: #fff;
-    color: #fff;
-  }
   &:disabled {
     opacity: 0.4;
     cursor: default;
