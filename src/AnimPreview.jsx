@@ -11,16 +11,13 @@ const DOT_RATIO = 0.32; // dot radius as a fraction of the cell size
 // which otherwise render it as a tall rectangle.
 const Frame = styled.div`
   position: relative;
-  width: 160px;
+  width: 100%;
   overflow: hidden;
   background: #000;
   &::before {
     content: "";
     display: block;
     padding-top: 100%;
-  }
-  @media (max-width: 640px) {
-    width: 100%;
   }
 `;
 

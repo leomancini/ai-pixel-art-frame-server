@@ -74,11 +74,6 @@ const Card = styled.button`
   & > * {
     pointer-events: none;
   }
-  @media (hover: hover) {
-    &:hover {
-      transform: scale(1.04);
-    }
-  }
   &:active {
     transform: scale(0.96);
   }

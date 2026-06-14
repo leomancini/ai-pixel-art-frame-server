@@ -80,7 +80,7 @@ button {
   -webkit-user-select: none;
   user-select: none;
   -webkit-touch-callout: none;
-  transition: transform 0.06s ease;
+  transition: transform 0.12s ease;
 }
 
 button:active:not(:disabled) {

@@ -144,18 +144,15 @@ export const Header = styled.div`
   gap: 12px;
   flex-wrap: wrap;
   justify-content: center;
-  width: ${(p) => (p.$wide ? "min(900px, 92vw)" : "min(560px, 92vw)")};
+  width: min(1100px, 92vw);
 `;
 
 export const Row = styled.div`
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
   gap: 16px;
-  flex-wrap: wrap;
-  justify-content: center;
-  max-width: 1100px;
+  width: min(1100px, 92vw);
   @media (max-width: 640px) {
-    display: grid;
     grid-template-columns: 1fr 1fr;
-    width: 92vw;
   }
 `;

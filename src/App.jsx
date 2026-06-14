@@ -11,7 +11,7 @@ const Settings = styled.div`
   flex-direction: column;
   align-items: stretch;
   gap: 24px;
-  width: ${(p) => (p.$wide ? "min(900px, 92vw)" : "min(560px, 92vw)")};
+  width: ${(p) => (p.$wide ? "min(1100px, 92vw)" : "min(560px, 92vw)")};
   text-align: left;
 `;
 
@@ -257,6 +257,11 @@ export default function App() {
     () => api.get("/api/me").then(setUser).catch(() => setUser(null)),
     []
   );
+  // After signing in, always land on the frames view (not /settings).
+  const onSignedIn = useCallback(() => {
+    window.history.replaceState({}, "", "/");
+    loadMe();
+  }, [loadMe]);
   useEffect(() => {
     setUnauthorizedHandler(() => setUser(null));
     loadMe();
@@ -284,6 +289,6 @@ export default function App() {
     // Plain black page until the font is loaded and we know the auth state.
     return <Centered />;
   }
-  if (!user) return <Login onSignedIn={loadMe} />;
+  if (!user) return <Login onSignedIn={onSignedIn} />;
   return <Main user={user} />;
 }
