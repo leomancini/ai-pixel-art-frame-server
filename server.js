@@ -616,6 +616,15 @@ app.get("/api/frames", requireAuth, (req, res) => {
   );
 });
 
+// A user can rename a frame they can access. This is just the display label —
+// the firmware identifies the board by its immutable slug, so renaming is safe.
+app.patch("/api/frames/:id/name", requireFrameAccess, (req, res) => {
+  const name = (req.body?.name ?? "").trim().slice(0, 60);
+  if (!name) return res.status(400).json({ error: "name is required" });
+  db.prepare("UPDATE frames SET name = ? WHERE id = ?").run(name, req.frame.id);
+  res.json({ ok: true, name });
+});
+
 // One frame's gallery (newest first; no frame data — fetch per-item for previews)
 app.get("/api/frames/:id/gallery", requireFrameAccess, (req, res) => {
   const rows = db
@@ -828,6 +837,8 @@ app.post("/api/admin/access", requireAdmin, (req, res) => {
   ) {
     return res.status(404).json({ error: "user or frame not found" });
   }
+  // Each person can access at most one frame: replace any existing grant.
+  db.prepare("DELETE FROM frame_access WHERE user_id = ?").run(userId);
   db.prepare(
     "INSERT OR IGNORE INTO frame_access (user_id, frame_id) VALUES (?, ?)"
   ).run(userId, frameId);

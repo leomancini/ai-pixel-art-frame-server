@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import styled from "styled-components";
 import { api } from "./api";
-import { Input, Button, GhostButton, SectionTitle, Muted } from "./ui";
+import { Input, Button, GhostButton, SectionTitle, Muted, Select } from "./ui";
 
 const Wrap = styled.div`
   display: flex;
@@ -52,20 +52,6 @@ const KeyBox = styled.div`
   word-break: break-all;
 `;
 
-const Checks = styled.div`
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-`;
-
-const Check = styled.label`
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 20px;
-  color: #ccc;
-  cursor: pointer;
-`;
 
 export default function AdminPanel({ onFramesChanged }) {
   const [frames, setFrames] = useState([]);
@@ -128,9 +114,16 @@ export default function AdminPanel({ onFramesChanged }) {
     load();
   };
 
-  const toggleAccess = async (u, frameId, granted) => {
-    if (granted) await api.del("/api/admin/access", { userId: u.id, frameId });
-    else await api.post("/api/admin/access", { userId: u.id, frameId });
+  // Each person can access at most one frame. Picking a frame replaces any
+  // prior grant (server-side); "None" revokes whatever they had.
+  const setAccess = async (u, frameId) => {
+    if (frameId == null) {
+      for (const fid of u.frameIds) {
+        await api.del("/api/admin/access", { userId: u.id, frameId: fid });
+      }
+    } else {
+      await api.post("/api/admin/access", { userId: u.id, frameId });
+    }
     load();
   };
 
@@ -195,21 +188,20 @@ export default function AdminPanel({ onFramesChanged }) {
               {u.email} {u.isAdmin && <b>(admin)</b>}
               <Sub>{u.linked ? "signed in" : "not signed in yet"}</Sub>
               {!u.isAdmin && (
-                <Checks style={{ marginTop: 8 }}>
-                  {frames.map((f) => {
-                    const granted = u.frameIds.includes(f.id);
-                    return (
-                      <Check key={f.id}>
-                        <input
-                          type="checkbox"
-                          checked={granted}
-                          onChange={() => toggleAccess(u, f.id, granted)}
-                        />
-                        {f.name}
-                      </Check>
-                    );
-                  })}
-                </Checks>
+                <Select
+                  style={{ marginTop: 8 }}
+                  value={u.frameIds[0] ?? ""}
+                  onChange={(e) =>
+                    setAccess(u, e.target.value ? Number(e.target.value) : null)
+                  }
+                >
+                  <option value="">No frame</option>
+                  {frames.map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {f.name}
+                    </option>
+                  ))}
+                </Select>
               )}
             </Grow>
             {!u.isAdmin && <GhostButton onClick={() => deleteUser(u)}>Remove</GhostButton>}

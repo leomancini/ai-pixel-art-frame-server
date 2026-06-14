@@ -1,7 +1,7 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import styled from "styled-components";
 import { api, setUnauthorizedHandler } from "./api";
-import { Page, Centered, Muted, Tab, GhostButton } from "./ui";
+import { Page, Centered, Muted, Tab, GhostButton, Input, SectionTitle } from "./ui";
 import Login from "./Login";
 import FrameControl from "./FrameControl";
 import AdminPanel from "./AdminPanel";
@@ -13,10 +13,6 @@ const Header = styled.div`
   flex-wrap: wrap;
   justify-content: center;
   width: min(1100px, 92vw);
-`;
-
-const Spacer = styled.div`
-  flex: 1;
 `;
 
 const Settings = styled.div`
@@ -32,6 +28,17 @@ const Who = styled.div`
   color: #888;
 `;
 
+const FrameLabel = styled.div`
+  flex: 1;
+  min-width: 0;
+  font-size: 40px;
+  color: #eee;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+`;
+
 const IconButton = styled.button`
   display: inline-flex;
   align-items: center;
@@ -39,14 +46,16 @@ const IconButton = styled.button`
   width: 40px;
   height: 40px;
   padding: 0;
-  color: ${(p) => (p.$active ? "#fff" : "#ccc")};
-  background: ${(p) => (p.$active ? "#262626" : "transparent")};
-  border: 2px solid #fff;
+  color: ${(p) => (p.$active ? "#111" : "#ccc")};
+  background: ${(p) => (p.$active ? "#fff" : "#262626")};
+  border: none;
   border-radius: 10px;
   cursor: pointer;
   &:hover {
-    border-color: #fff;
-    color: #fff;
+    color: ${(p) => (p.$active ? "#111" : "#fff")};
+  }
+  &:active:not(:disabled) {
+    transform: none;
   }
 `;
 
@@ -67,10 +76,64 @@ const GearIcon = () => (
   </svg>
 );
 
+const NickForm = styled.form`
+  display: flex;
+  gap: 10px;
+  width: min(560px, 92vw);
+`;
+
+// Lets a user rename a frame they can access. Auto-saves (debounced) as they
+// type. This is just the display label — the firmware keys off the slug.
+function FrameName({ frame, onSaved }) {
+  const [name, setName] = useState(frame.name);
+  const firstRef = useRef(true);
+  useEffect(() => {
+    if (firstRef.current) {
+      firstRef.current = false;
+      return;
+    }
+    if (!name.trim()) return; // name is required; don't save empty
+    const t = setTimeout(() => {
+      api
+        .patch(`/api/frames/${frame.id}/name`, { name: name.trim() })
+        .then(() => onSaved?.());
+    }, 500);
+    return () => clearTimeout(t);
+  }, [name, frame.id, onSaved]);
+  return (
+    <NickForm onSubmit={(e) => e.preventDefault()}>
+      <Input
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        placeholder="Frame name"
+        maxLength={60}
+      />
+    </NickForm>
+  );
+}
+
+// Map the URL path to a view so /settings survives a refresh.
+const pathToView = (p) => (p === "/settings" ? "settings" : "frames");
+
 function Main({ user }) {
   const [frames, setFrames] = useState(null);
   const [selectedId, setSelectedId] = useState(null);
-  const [view, setView] = useState("frames"); // "frames" | "settings"
+  const [view, setView] = useState(() => pathToView(window.location.pathname));
+
+  // Switch view and keep the URL (/ or /settings) in sync for refresh + back/fwd.
+  const goto = useCallback((v) => {
+    setView(v);
+    const path = v === "settings" ? "/settings" : "/";
+    if (window.location.pathname !== path) {
+      window.history.pushState({}, "", path);
+    }
+  }, []);
+
+  useEffect(() => {
+    const onPop = () => setView(pathToView(window.location.pathname));
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
 
   const loadFrames = useCallback(
     () =>
@@ -96,10 +159,10 @@ function Main({ user }) {
   return (
     <Page>
       <Header>
-        <Spacer />
+        <FrameLabel>{selected ? selected.name : ""}</FrameLabel>
         <IconButton
           $active={view === "settings"}
-          onClick={() => setView(view === "settings" ? "frames" : "settings")}
+          onClick={() => goto(view === "settings" ? "frames" : "settings")}
           aria-label="Settings"
           title="Settings"
         >
@@ -110,6 +173,14 @@ function Main({ user }) {
       {view === "settings" ? (
         <Settings>
           <Who>{user.email}</Who>
+          {!user.isAdmin && frames?.length > 0 && (
+            <>
+              <SectionTitle>Frame name</SectionTitle>
+              {frames.map((f) => (
+                <FrameName key={f.id} frame={f} onSaved={loadFrames} />
+              ))}
+            </>
+          )}
           <GhostButton onClick={logout}>Sign out</GhostButton>
           {user.isAdmin && <AdminPanel onFramesChanged={loadFrames} />}
         </Settings>

@@ -7,6 +7,7 @@
 import styled from "styled-components";
 
 export const Page = styled.div`
+  box-sizing: border-box;
   min-height: 100vh;
   min-height: 100dvh;
   display: flex;
@@ -71,6 +72,20 @@ export const Input = styled.input`
   }
 `;
 
+export const Select = styled.select`
+  padding: 12px 16px;
+  font-size: 20px;
+  color: #eee;
+  background: #161616;
+  border: 2px solid #555;
+  border-radius: 12px;
+  outline: none;
+  cursor: pointer;
+  &:focus {
+    border-color: #fff;
+  }
+`;
+
 export const Button = styled.button`
   padding: 12px 20px;
   font-size: 20px;
@@ -87,7 +102,7 @@ export const Button = styled.button`
 `;
 
 export const GhostButton = styled.button`
-  padding: 8px 14px;
+  padding: 12px 16px;
   font-size: 20px;
   color: #ccc;
   background: transparent;
