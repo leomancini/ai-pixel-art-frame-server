@@ -115,9 +115,10 @@ const GearIcon = () => (
 const NickForm = styled.form`
   display: flex;
   width: 100%;
-  /* One homepage grid column wide on desktop (4 cols, 16px gaps). */
+  /* Desktop: one homepage grid column (4 cols, 16px gaps) minus a gap.
+     min() of flat calc()s — nesting min() inside a calc division breaks iOS. */
   @media (min-width: 641px) {
-    width: calc((min(1100px, 92vw) - 48px) / 4);
+    width: min(247px, calc((92vw - 48px) / 4 - 16px));
   }
 `;
 
@@ -205,7 +206,7 @@ function Main({ user }) {
     <Page>
       <Header $wide={user.isAdmin}>
         <FrameLabel>
-          {frames === null ? "Loading…" : selected ? selected.name : ""}
+          {frames === null ? "Loading" : selected ? selected.name : ""}
         </FrameLabel>
         <IconButton
           $active={view === "settings"}
@@ -217,7 +218,7 @@ function Main({ user }) {
         </IconButton>
       </Header>
 
-      {view === "settings" ? (
+      {frames === null ? null : view === "settings" ? (
         <Settings $wide={user.isAdmin}>
           <SettingsList>
             <SettingRow>
@@ -238,7 +239,7 @@ function Main({ user }) {
           </SettingsList>
           {user.isAdmin && <AdminPanel onFramesChanged={loadFrames} />}
         </Settings>
-      ) : frames === null ? null : frames.length === 0 ? (
+      ) : frames.length === 0 ? (
         <Muted>
           No frames assigned to you yet.
           {user.isAdmin ? " Add one in Settings (gear, top right)." : " Ask the admin for access."}
