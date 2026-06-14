@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import styled, { keyframes } from "styled-components";
+import styled, { keyframes, css } from "styled-components";
 import { api } from "./api";
 import AnimPreview from "./AnimPreview";
 import { Input, Button, Row } from "./ui";
@@ -42,6 +42,11 @@ const PromptForm = styled.form`
     align-items: stretch;
     gap: 16px;
     width: 92vw;
+    & > textarea {
+      height: auto;
+      min-height: 0;
+      line-height: 1.3;
+    }
   }
 `;
 
@@ -50,6 +55,11 @@ const Status = styled.div`
   color: ${(p) => (p.$error ? "#bbb" : "#777")};
   min-height: 1.2em;
   text-align: center;
+`;
+
+const fadeIn = keyframes`
+  from { opacity: 0; }
+  to { opacity: 1; }
 `;
 
 // A native <button> so iOS reliably fires click (tap-to-select).
@@ -81,16 +91,28 @@ const Card = styled.button`
       box-shadow: inset 0 0 0 2px ${(p) => (p.$active ? "#fff" : "#888")};
     }
   }
+  ${(p) =>
+    p.$fresh &&
+    css`
+      animation: ${fadeIn} 0.4s ease;
+    `}
 `;
-
 
 const pulse = keyframes`
   0%, 100% { opacity: 0.45; }
   50% { opacity: 1; }
 `;
 
+// The loading card fades out (instead of vanishing) when generation finishes.
 const LoadingCard = styled(Card)`
   animation: ${pulse} 1.4s ease-in-out infinite;
+  transition: opacity 0.35s ease;
+  ${(p) =>
+    p.$out &&
+    css`
+      animation: none;
+      opacity: 0;
+    `}
 `;
 
 const Name = styled.div`
@@ -110,7 +132,7 @@ const Name = styled.div`
 
 // Gallery card: tap selects; long-press confirms deletion. No press visual —
 // the selection border is the feedback. Movement cancels the long-press.
-function GalleryCard({ src, name, active, onSelect, onDelete }) {
+function GalleryCard({ src, name, active, fresh, onSelect, onDelete }) {
   const timer = useRef(null);
   const longRef = useRef(false);
   const start = useRef({ x: 0, y: 0 });
@@ -144,6 +166,7 @@ function GalleryCard({ src, name, active, onSelect, onDelete }) {
     <Card
       type="button"
       $active={active}
+      $fresh={fresh}
       onClick={click}
       onPointerDown={down}
       onPointerMove={move}
@@ -157,26 +180,45 @@ function GalleryCard({ src, name, active, onSelect, onDelete }) {
   );
 }
 
+// Tracks the mobile breakpoint so the prompt can be a multi-line textarea on
+// mobile and a single-line input on desktop.
+function useIsMobile() {
+  const [mobile, setMobile] = useState(
+    () => window.matchMedia("(max-width: 640px)").matches
+  );
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 640px)");
+    const onChange = (e) => setMobile(e.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+  return mobile;
+}
+
 // Generate + gallery + preset picker for a single frame. `frame` carries the
 // active selection; `refresh` reloads the frame list so highlights stay live.
 export default function FrameControl({ frame, refresh }) {
+  const isMobile = useIsMobile();
   const [gallery, setGallery] = useState([]);
   const [presets, setPresets] = useState([]);
   const [prompt, setPrompt] = useState("");
-  const [generating, setGenerating] = useState(false);
+  // "idle" | "loading" (generating) | "out" (loading card fading out)
+  const [phase, setPhase] = useState("idle");
+  const [freshId, setFreshId] = useState(null); // newly generated card (fades in)
   const [status, setStatus] = useState("");
   const [error, setError] = useState(false);
   const [verb, setVerb] = useState(LOADING_VERBS[0]);
+  const busy = phase !== "idle";
 
   // Cycle through random verbs while generating.
   useEffect(() => {
-    if (!generating) return;
+    if (phase !== "loading") return;
     const pick = () =>
       setVerb(LOADING_VERBS[Math.floor(Math.random() * LOADING_VERBS.length)]);
     pick();
     const id = setInterval(pick, 1500);
     return () => clearInterval(id);
-  }, [generating]);
+  }, [phase]);
 
   const loadLists = () => {
     api.get(`/api/frames/${frame.id}/gallery`).then(setGallery).catch(() => {});
@@ -198,21 +240,30 @@ export default function FrameControl({ frame, refresh }) {
   const generate = async (e) => {
     e.preventDefault();
     const text = prompt.trim();
-    if (!text || generating) return;
-    setGenerating(true);
+    if (!text || busy) return;
+    setPhase("loading");
     setError(false);
     setStatus("");
-    setPrompt(""); // clear + disable the textarea immediately
+    setPrompt(""); // clear + disable the field immediately
     try {
-      await api.post(`/api/frames/${frame.id}/generate`, { prompt: text });
-      // Server activates the new animation; reload so it shows as selected.
-      loadLists();
-      refresh();
+      const data = await api.post(`/api/frames/${frame.id}/generate`, {
+        prompt: text,
+      });
+      refresh(); // server activated the new animation (updates selection)
+      // Fade the loading card out, leave the spot empty, then fade the new card in.
+      setPhase("out");
+      setTimeout(() => {
+        setPhase("idle"); // loading card removed — spot empty
+        setTimeout(() => {
+          setFreshId(data.id);
+          loadLists(); // new card appears and fades in
+          setTimeout(() => setFreshId(null), 600);
+        }, 140);
+      }, 350);
     } catch (err) {
+      setPhase("idle");
       setError(true);
       setStatus(err.message);
-    } finally {
-      setGenerating(false);
     }
   };
 
@@ -239,24 +290,25 @@ export default function FrameControl({ frame, refresh }) {
     <Content>
       <PromptForm onSubmit={generate}>
         <Input
+          {...(isMobile ? { as: "textarea", rows: 3 } : {})}
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
           placeholder="Describe an animation"
           maxLength={500}
-          disabled={generating}
+          disabled={busy}
           autoComplete="off"
           data-1p-ignore="true"
           data-lpignore="true"
         />
-        <Button type="submit" disabled={generating || !prompt.trim()}>
+        <Button type="submit" disabled={busy || !prompt.trim()}>
           Create
         </Button>
       </PromptForm>
       {status && <Status $error={error}>{status}</Status>}
 
       <Row>
-        {generating && (
-          <LoadingCard as="div">
+        {(phase === "loading" || phase === "out") && (
+          <LoadingCard as="div" $out={phase === "out"}>
             <AnimPreview shimmer />
             <Name>{verb}</Name>
           </LoadingCard>
@@ -267,6 +319,7 @@ export default function FrameControl({ frame, refresh }) {
             src={`/api/frames/${frame.id}/gallery/${g.id}`}
             name={g.name}
             active={isActiveGallery(g.id)}
+            fresh={g.id === freshId}
             onSelect={() => activateGallery(g.id)}
             onDelete={() => remove(g.id, g.name)}
           />
