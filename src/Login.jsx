@@ -27,7 +27,8 @@ const SignInButton = styled.button`
   font-size: 20px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  padding: 14px 28px;
+  width: min(560px, 92vw);
+  padding: 12px 20px;
   color: #111;
   background: #eee;
   border: 2px solid #fff;
