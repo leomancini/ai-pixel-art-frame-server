@@ -75,7 +75,8 @@ const Card = styled.button`
   padding: 12px 12px 18px;
   background: #000;
   border: none;
-  box-shadow: inset 0 0 0 2px ${(p) => (p.$active ? "#fff" : "#444")};
+  box-shadow: inset 0 0 0 2px
+    ${(p) => (p.$active || p.$pressed ? "#fff" : "#444")};
   border-radius: 14px;
   cursor: pointer;
   color: inherit;
@@ -86,15 +87,9 @@ const Card = styled.button`
   }
   @media (hover: hover) {
     &:hover {
-      box-shadow: inset 0 0 0 2px ${(p) => (p.$active ? "#fff" : "#888")};
+      box-shadow: inset 0 0 0 2px
+        ${(p) => (p.$active || p.$pressed ? "#fff" : "#888")};
     }
-  }
-  &:active {
-    box-shadow: inset 0 0 0 2px #fff;
-  }
-  /* Don't show the press state while scrolling (iOS holds :active on drag). */
-  body[data-scrolling] &:active {
-    box-shadow: inset 0 0 0 2px ${(p) => (p.$active ? "#fff" : "#444")};
   }
 `;
 
@@ -111,48 +106,60 @@ const LoadingCard = styled(Card)`
 const Name = styled.div`
   width: 100%;
   font-size: 20px;
-  color: ${(p) => (p.$active ? "#fff" : "#777")};
+  color: ${(p) => (p.$active ? "#fff" : p.$pressed ? "#ccc" : "#777")};
   text-align: center;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   @media (hover: hover) {
     ${Card}:hover & {
-      color: ${(p) => (p.$active ? "#fff" : "#aaa")};
+      color: ${(p) => (p.$active ? "#fff" : p.$pressed ? "#ccc" : "#aaa")};
     }
-  }
-  ${Card}:active & {
-    color: ${(p) => (p.$active ? "#fff" : "#ccc")};
-  }
-  body[data-scrolling] ${Card}:active & {
-    color: ${(p) => (p.$active ? "#fff" : "#777")};
   }
 `;
 
-// Gallery card: tap selects (CSS :active handles press feedback); long-press
-// confirms deletion. Movement cancels the long-press so scrolling is safe.
-function GalleryCard({ src, name, active, onSelect, onDelete }) {
-  const timer = useRef(null);
+// Card with native-feeling press: the press visual appears after a short delay
+// and only if the finger hasn't moved, so a held tap shows it but a scroll
+// never does (no flicker, no active-on-scroll). A move past the threshold
+// cancels both the press and the long-press. Selection is left to the click
+// event — iOS doesn't fire click when a touch becomes a scroll.
+function SelectableCard({ src, name, active, onSelect, onDelete }) {
+  const [pressed, setPressed] = useState(false);
+  const pressTimer = useRef(null);
+  const longTimer = useRef(null);
   const longRef = useRef(false);
   const start = useRef({ x: 0, y: 0 });
+
+  const cancelTimers = () => {
+    clearTimeout(pressTimer.current);
+    clearTimeout(longTimer.current);
+  };
 
   const down = (e) => {
     longRef.current = false;
     start.current = { x: e.clientX, y: e.clientY };
-    timer.current = setTimeout(() => {
-      longRef.current = true;
-      onDelete();
-    }, 550);
+    pressTimer.current = setTimeout(() => setPressed(true), 60);
+    if (onDelete) {
+      longTimer.current = setTimeout(() => {
+        longRef.current = true;
+        setPressed(false);
+        onDelete();
+      }, 550);
+    }
   };
   const move = (e) => {
     if (
-      Math.abs(e.clientX - start.current.x) > 10 ||
-      Math.abs(e.clientY - start.current.y) > 10
+      Math.abs(e.clientX - start.current.x) > 12 ||
+      Math.abs(e.clientY - start.current.y) > 12
     ) {
-      clearTimeout(timer.current);
+      cancelTimers();
+      setPressed(false);
     }
   };
-  const end = () => clearTimeout(timer.current);
+  const end = () => {
+    cancelTimers();
+    setPressed(false);
+  };
   const click = () => {
     if (longRef.current) {
       longRef.current = false;
@@ -165,15 +172,19 @@ function GalleryCard({ src, name, active, onSelect, onDelete }) {
     <Card
       type="button"
       $active={active}
+      $pressed={pressed}
       onClick={click}
       onPointerDown={down}
       onPointerMove={move}
       onPointerUp={end}
       onPointerLeave={end}
+      onPointerCancel={end}
       onContextMenu={(e) => e.preventDefault()}
     >
       <AnimPreview src={src} />
-      <Name $active={active}>{name}</Name>
+      <Name $active={active} $pressed={pressed}>
+        {name}
+      </Name>
     </Card>
   );
 }
@@ -285,7 +296,7 @@ export default function FrameControl({ frame, refresh }) {
           </LoadingCard>
         )}
         {gallery.map((g) => (
-          <GalleryCard
+          <SelectableCard
             key={`g-${g.id}`}
             src={`/api/frames/${frame.id}/gallery/${g.id}`}
             name={g.name}
@@ -295,15 +306,13 @@ export default function FrameControl({ frame, refresh }) {
           />
         ))}
         {presets.map((p) => (
-          <Card
-            type="button"
+          <SelectableCard
             key={`p-${p.key}`}
-            $active={isActivePreset(p.key)}
-            onClick={() => activatePreset(p.key)}
-          >
-            <AnimPreview src={`/api/presets/${p.key}`} />
-            <Name $active={isActivePreset(p.key)}>{p.name}</Name>
-          </Card>
+            src={`/api/presets/${p.key}`}
+            name={p.name}
+            active={isActivePreset(p.key)}
+            onSelect={() => activatePreset(p.key)}
+          />
         ))}
       </Row>
     </Content>

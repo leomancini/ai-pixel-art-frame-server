@@ -286,21 +286,6 @@ export default function App() {
     loadMe();
   }, [loadMe]);
 
-  // Flag the body while a touch is actively scrolling so :active press styles
-  // can be suppressed (iOS otherwise holds :active through a scroll/drag).
-  useEffect(() => {
-    const set = () => document.body.setAttribute("data-scrolling", "");
-    const clear = () => document.body.removeAttribute("data-scrolling");
-    window.addEventListener("touchmove", set, { passive: true });
-    window.addEventListener("touchend", clear, { passive: true });
-    window.addEventListener("touchcancel", clear, { passive: true });
-    return () => {
-      window.removeEventListener("touchmove", set);
-      window.removeEventListener("touchend", clear);
-      window.removeEventListener("touchcancel", clear);
-    };
-  }, []);
-
   // Don't render any text until the pixel font is loaded (avoids a fallback flash).
   useEffect(() => {
     let cancelled = false;
