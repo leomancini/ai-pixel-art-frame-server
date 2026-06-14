@@ -34,7 +34,7 @@ const Content = styled.div`
 
 const PromptForm = styled.form`
   display: flex;
-  gap: 10px;
+  gap: 24px;
   align-items: stretch;
   width: min(1100px, 92vw);
   @media (max-width: 640px) {

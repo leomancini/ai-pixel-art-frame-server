@@ -29,6 +29,24 @@ const Canvas = styled.canvas`
   display: block;
 `;
 
+// Draw one grid of dots from a per-pixel color function (x, y) -> [r,g,b].
+function drawGrid(ctx, canvas, colorAt) {
+  const cellX = canvas.width / SIZE;
+  const cellY = canvas.height / SIZE;
+  const r = Math.min(cellX, cellY) * DOT_RATIO;
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  for (let y = 0; y < SIZE; y++) {
+    for (let x = 0; x < SIZE; x++) {
+      const [cr, cg, cb] = colorAt(x, y);
+      ctx.fillStyle = `rgb(${cr},${cg},${cb})`;
+      ctx.beginPath();
+      ctx.arc(x * cellX + cellX / 2, y * cellY + cellY / 2, r, 0, 2 * Math.PI);
+      ctx.fill();
+    }
+  }
+}
+
 // Plays an animation's frames on a canvas, drawing each pixel as a discrete
 // LED with a dark gap between them — like the physical 32×32 matrix. `src` is
 // an endpoint returning { frames, delayMs }. The backing store is sized to the
@@ -37,8 +55,33 @@ const Canvas = styled.canvas`
 export default function AnimPreview({ src, shimmer }) {
   const canvasRef = useRef(null);
   const animRef = useRef(null);
+  // Live playback state so the resize handler can redraw the current frame
+  // immediately (sizing the canvas clears it — otherwise it flickers blank).
+  const stateRef = useRef({ frames: null, idx: 0, t: 0 });
 
-  // Keep the backing-store resolution matched to the rendered (square) size.
+  // Draw whatever the current state is to the canvas.
+  const draw = () => {
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext("2d");
+    if (!ctx) return;
+    const st = stateRef.current;
+    if (shimmer) {
+      drawGrid(ctx, canvas, (x, y) => {
+        const v = (Math.sin((x + y) * 0.2 - st.t * 0.12) + 1) / 2;
+        const g = Math.round(v * 90);
+        return [g, g, g];
+      });
+    } else if (st.frames) {
+      const frame = st.frames[st.idx];
+      drawGrid(ctx, canvas, (x, y) => {
+        const i = (y * SIZE + x) * 3;
+        return [frame[i], frame[i + 1], frame[i + 2]];
+      });
+    }
+  };
+
+  // Keep the backing-store resolution matched to the rendered (square) size,
+  // and redraw the current frame right away so resizing never blanks the grid.
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -49,51 +92,28 @@ export default function AnimPreview({ src, shimmer }) {
       if (canvas.width !== w || canvas.height !== h) {
         canvas.width = w;
         canvas.height = h;
+        draw();
       }
     };
     resize();
     const ro = new ResizeObserver(resize);
     ro.observe(canvas);
     return () => ro.disconnect();
-  }, []);
-
-  // Draw one grid of dots from a per-pixel color function (x, y) -> [r,g,b].
-  const drawGrid = (ctx, canvas, colorAt) => {
-    const cellX = canvas.width / SIZE;
-    const cellY = canvas.height / SIZE;
-    const r = Math.min(cellX, cellY) * DOT_RATIO;
-    ctx.fillStyle = "#000";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    for (let y = 0; y < SIZE; y++) {
-      for (let x = 0; x < SIZE; x++) {
-        const [cr, cg, cb] = colorAt(x, y);
-        ctx.fillStyle = `rgb(${cr},${cg},${cb})`;
-        ctx.beginPath();
-        ctx.arc(x * cellX + cellX / 2, y * cellY + cellY / 2, r, 0, 2 * Math.PI);
-        ctx.fill();
-      }
-    }
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shimmer]);
 
   // Shimmer loading animation: a grey band sweeps diagonally over black pixels.
   useEffect(() => {
     if (!shimmer) return;
-    let t = 0;
+    stateRef.current.t = 0;
     const tick = () => {
-      const canvas = canvasRef.current;
-      const ctx = canvas?.getContext("2d");
-      if (!ctx) return;
-      drawGrid(ctx, canvas, (x, y) => {
-        // Wide, smooth diagonal band sweeping black -> grey -> black.
-        const v = (Math.sin((x + y) * 0.2 - t * 0.12) + 1) / 2;
-        const g = Math.round(v * 90);
-        return [g, g, g];
-      });
-      t += 1;
+      stateRef.current.t += 1;
+      draw();
       animRef.current = setTimeout(tick, 40);
     };
     tick();
     return () => clearTimeout(animRef.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shimmer]);
 
   // Play the animation from `src`.
@@ -104,17 +124,11 @@ export default function AnimPreview({ src, shimmer }) {
       .get(src)
       .then(({ frames, delayMs }) => {
         if (cancelled) return;
-        let idx = 0;
+        stateRef.current.frames = frames;
+        stateRef.current.idx = 0;
         const tick = () => {
-          const canvas = canvasRef.current;
-          const ctx = canvas?.getContext("2d");
-          if (!ctx) return;
-          const frame = frames[idx];
-          drawGrid(ctx, canvas, (x, y) => {
-            const i = (y * SIZE + x) * 3;
-            return [frame[i], frame[i + 1], frame[i + 2]];
-          });
-          idx = (idx + 1) % frames.length;
+          draw();
+          stateRef.current.idx = (stateRef.current.idx + 1) % frames.length;
           animRef.current = setTimeout(tick, delayMs);
         };
         tick();
@@ -124,6 +138,7 @@ export default function AnimPreview({ src, shimmer }) {
       cancelled = true;
       clearTimeout(animRef.current);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [src, shimmer]);
 
   return (
