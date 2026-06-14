@@ -358,14 +358,14 @@ Requirements:
 - This is a physical LED matrix: saturated colors and pure-black backgrounds look great; muddy mid-grays look bad. The panel has only 16 brightness levels per channel and CANNOT render dim colors — channel values between 1 and ~50 don't read as a smooth dark shade, they show up as sparse, distractingly lit dots. Never use dim fills, dark ambient glows, or long dark gradient tails. Backgrounds and "dark" areas must be exactly [0, 0, 0]; anything meant to be visible should use channel values of roughly 60+. When fading something out, snap to true black once it drops below that floor instead of trailing through near-black values.
 - 32x32 is tiny: keep compositions simple and readable. One clear subject beats intricate detail.
 - Pick frameCount (8-64) and delayMs (30-150) to suit the motion. Use the full 64 frames only when the motion needs it.
-- The name should be short (1-3 words), evocative, suitable as a gallery label.
+- The name MUST be a SINGLE word (exactly one word, no spaces, no hyphens), evocative, suitable as a gallery label.
 
 You may define helper functions and precomputed module-level constants before render. Keep the total code under 150 lines.`;
 
 const ANIMATION_SCHEMA = {
   type: "object",
   properties: {
-    name: { type: "string", description: "Short gallery label, 1-3 words" },
+    name: { type: "string", description: "Gallery label — exactly ONE word, no spaces or hyphens" },
     frameCount: { type: "integer", description: "Number of frames, 8-64" },
     delayMs: { type: "integer", description: "Per-frame delay in ms, 30-150" },
     code: {
@@ -431,6 +431,11 @@ async function generateAnimation(prompt) {
     const message = await stream.finalMessage();
     const text = message.content.find((b) => b.type === "text")?.text;
     const result = JSON.parse(text);
+    // Titles are always a single word — keep the first word, strip the rest.
+    result.name = String(result.name ?? "")
+      .trim()
+      .split(/[\s-]+/)[0]
+      .slice(0, 40) || "Untitled";
     result.frameCount = Math.max(8, Math.min(MAX_FRAMES, result.frameCount));
     result.delayMs = Math.max(20, Math.min(5000, result.delayMs));
     try {

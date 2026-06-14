@@ -8,7 +8,7 @@ const Content = styled.div`
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 28px;
+  gap: 40px;
 `;
 
 const PromptForm = styled.form`
