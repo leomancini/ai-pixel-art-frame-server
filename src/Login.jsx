@@ -67,14 +67,31 @@ export default function Login({ onSignedIn }) {
   const [error, setError] = useState("");
   const [ready, setReady] = useState(false);
   const [signingIn, setSigningIn] = useState(false);
+  const authStartedRef = useRef(false); // true once Google returns a credential
 
   // Click the real (hidden) Google button to launch the popup; fall back to
-  // One Tap if the rendered button isn't there yet.
+  // One Tap if the rendered button isn't there yet. Show the loading screen
+  // immediately so the start page never reappears during sign-in.
   const signIn = () => {
+    authStartedRef.current = false;
+    setError("");
+    setSigningIn(true);
     const btn = hostRef.current?.querySelector("div[role=button]");
     if (btn) btn.click();
     else window.google?.accounts?.id?.prompt();
   };
+
+  // If the user dismisses the Google popup without authenticating, focus
+  // returns here with no auth started — restore the start screen.
+  useEffect(() => {
+    const onFocus = () => {
+      window.setTimeout(() => {
+        if (!authStartedRef.current) setSigningIn(false);
+      }, 500);
+    };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -95,13 +112,14 @@ export default function Login({ onSignedIn }) {
           window.google.accounts.id.initialize({
             client_id: googleClientId,
             callback: async (resp) => {
-              // Swap to the loading screen immediately so the start page
-              // doesn't flash back while we exchange the token.
+              // Auth started — keep the loading screen up through the exchange.
+              authStartedRef.current = true;
               setSigningIn(true);
               try {
                 await api.post("/api/auth/google", { credential: resp.credential });
                 onSignedIn();
               } catch (e) {
+                authStartedRef.current = false;
                 setSigningIn(false);
                 setError(e.message);
               }
