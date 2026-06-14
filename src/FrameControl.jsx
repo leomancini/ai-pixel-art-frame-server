@@ -134,7 +134,7 @@ export default function FrameControl({ frame, refresh }) {
     const pick = () =>
       setVerb(LOADING_VERBS[Math.floor(Math.random() * LOADING_VERBS.length)]);
     pick();
-    const id = setInterval(pick, 3000);
+    const id = setInterval(pick, 1500);
     return () => clearInterval(id);
   }, [generating]);
 
