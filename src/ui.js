@@ -60,6 +60,7 @@ export const SectionTitle = styled.h2`
 
 export const Input = styled.input`
   flex: 1;
+  min-width: 0;
   padding: 12px 16px;
   font-size: 20px;
   color: #eee;

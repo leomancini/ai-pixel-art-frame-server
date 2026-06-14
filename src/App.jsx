@@ -115,10 +115,10 @@ const GearIcon = () => (
 const NickForm = styled.form`
   display: flex;
   width: 100%;
-  /* Desktop: one homepage grid column (4 cols, 16px gaps) minus a gap.
+  /* Desktop: exactly one homepage grid column (4 cols, 16px gaps).
      min() of flat calc()s — nesting min() inside a calc division breaks iOS. */
   @media (min-width: 641px) {
-    width: min(247px, calc((92vw - 48px) / 4 - 16px));
+    width: min(263px, calc((92vw - 48px) / 4));
   }
 `;
 
@@ -285,6 +285,21 @@ export default function App() {
     setUnauthorizedHandler(() => setUser(null));
     loadMe();
   }, [loadMe]);
+
+  // Flag the body while a touch is actively scrolling so :active press styles
+  // can be suppressed (iOS otherwise holds :active through a scroll/drag).
+  useEffect(() => {
+    const set = () => document.body.setAttribute("data-scrolling", "");
+    const clear = () => document.body.removeAttribute("data-scrolling");
+    window.addEventListener("touchmove", set, { passive: true });
+    window.addEventListener("touchend", clear, { passive: true });
+    window.addEventListener("touchcancel", clear, { passive: true });
+    return () => {
+      window.removeEventListener("touchmove", set);
+      window.removeEventListener("touchend", clear);
+      window.removeEventListener("touchcancel", clear);
+    };
+  }, []);
 
   // Don't render any text until the pixel font is loaded (avoids a fallback flash).
   useEffect(() => {
