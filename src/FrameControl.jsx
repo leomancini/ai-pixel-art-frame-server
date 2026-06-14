@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import styled, { keyframes } from "styled-components";
 import { api } from "./api";
 import AnimPreview from "./AnimPreview";
@@ -47,25 +47,33 @@ const PromptForm = styled.form`
 
 const Status = styled.div`
   font-size: 20px;
-  color: ${(p) => (p.$error ? "#ccc" : "#888")};
+  color: ${(p) => (p.$error ? "#bbb" : "#777")};
   min-height: 1.2em;
   text-align: center;
 `;
 
-const Card = styled.div`
+// A native <button> so iOS reliably fires click (tap-to-select).
+const Card = styled.button`
   position: relative;
   display: flex;
   flex-direction: column;
   align-items: stretch;
   min-width: 0;
+  width: 100%;
   gap: 12px;
   padding: 12px 12px 18px;
   background: #000;
   border: none;
-  box-shadow: inset 0 0 0 2px ${(p) => (p.$active ? "#fff" : "#555")};
+  box-shadow: inset 0 0 0 2px ${(p) => (p.$active ? "#fff" : "#444")};
   border-radius: 14px;
   cursor: pointer;
+  color: inherit;
+  font: inherit;
   transition: background 0.15s, transform 0.15s ease;
+  /* Inner content shouldn't swallow taps; the button handles them. */
+  & > * {
+    pointer-events: none;
+  }
   @media (hover: hover) {
     &:hover {
       transform: scale(1.04);
@@ -75,6 +83,7 @@ const Card = styled.div`
     transform: scale(0.96);
   }
 `;
+
 
 const pulse = keyframes`
   0%, 100% { opacity: 0.45; }
@@ -88,34 +97,60 @@ const LoadingCard = styled(Card)`
 const Name = styled.div`
   width: 100%;
   font-size: 20px;
-  color: ${(p) => (p.$active ? "#fff" : "#888")};
+  color: ${(p) => (p.$active ? "#fff" : "#777")};
   text-align: center;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 `;
 
-const DeleteX = styled.button`
-  position: absolute;
-  top: 6px;
-  right: 6px;
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  border: none;
-  background: rgba(0, 0, 0, 0.55);
-  color: #fff;
-  font-size: 20px;
-  line-height: 1;
-  cursor: pointer;
-  opacity: 0;
-  ${Card}:hover & {
-    opacity: 1;
-  }
-  &:hover {
-    background: #555;
-  }
-`;
+// Gallery card: tap selects; long-press confirms deletion.
+function GalleryCard({ src, name, active, onSelect, onDelete }) {
+  const timer = useRef(null);
+  const longRef = useRef(false);
+  const start = useRef({ x: 0, y: 0 });
+
+  const down = (e) => {
+    longRef.current = false;
+    start.current = { x: e.clientX, y: e.clientY };
+    timer.current = setTimeout(() => {
+      longRef.current = true;
+      onDelete();
+    }, 550);
+  };
+  const move = (e) => {
+    if (
+      Math.abs(e.clientX - start.current.x) > 10 ||
+      Math.abs(e.clientY - start.current.y) > 10
+    ) {
+      clearTimeout(timer.current);
+    }
+  };
+  const end = () => clearTimeout(timer.current);
+  const click = () => {
+    if (longRef.current) {
+      longRef.current = false;
+      return; // long-press handled the delete; don't also select
+    }
+    onSelect();
+  };
+
+  return (
+    <Card
+      type="button"
+      $active={active}
+      onClick={click}
+      onPointerDown={down}
+      onPointerMove={move}
+      onPointerUp={end}
+      onPointerLeave={end}
+      onContextMenu={(e) => e.preventDefault()}
+    >
+      <AnimPreview src={src} />
+      <Name $active={active}>{name}</Name>
+    </Card>
+  );
+}
 
 // Generate + gallery + preset picker for a single frame. `frame` carries the
 // active selection; `refresh` reloads the frame list so highlights stay live.
@@ -179,9 +214,8 @@ export default function FrameControl({ frame, refresh }) {
     refresh();
   };
 
-  const remove = async (id, e) => {
-    e.stopPropagation();
-    if (!window.confirm("Delete this animation?")) return;
+  const remove = async (id, name) => {
+    if (!window.confirm(`Are you sure you want to delete ${name.toUpperCase()}?`)) return;
     await api.del(`/api/frames/${frame.id}/gallery/${id}`);
     loadLists();
     refresh();
@@ -210,27 +244,24 @@ export default function FrameControl({ frame, refresh }) {
 
       <Row>
         {generating && (
-          <LoadingCard>
+          <LoadingCard as="div">
             <AnimPreview shimmer />
             <Name>{verb}</Name>
           </LoadingCard>
         )}
         {gallery.map((g) => (
-          <Card
+          <GalleryCard
             key={`g-${g.id}`}
-            $active={isActiveGallery(g.id)}
-            title={g.prompt}
-            onClick={() => activateGallery(g.id)}
-          >
-            <DeleteX title="Delete" onClick={(e) => remove(g.id, e)}>
-              ×
-            </DeleteX>
-            <AnimPreview src={`/api/frames/${frame.id}/gallery/${g.id}`} />
-            <Name $active={isActiveGallery(g.id)}>{g.name}</Name>
-          </Card>
+            src={`/api/frames/${frame.id}/gallery/${g.id}`}
+            name={g.name}
+            active={isActiveGallery(g.id)}
+            onSelect={() => activateGallery(g.id)}
+            onDelete={() => remove(g.id, g.name)}
+          />
         ))}
         {presets.map((p) => (
           <Card
+            type="button"
             key={`p-${p.key}`}
             $active={isActivePreset(p.key)}
             onClick={() => activatePreset(p.key)}

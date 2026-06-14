@@ -29,7 +29,7 @@ const SettingRow = styled.div`
 `;
 
 const RowLabel = styled.div`
-  color: #888;
+  color: #777;
   text-align: left;
 `;
 
@@ -68,8 +68,8 @@ const IconButton = styled.button`
   width: 40px;
   height: 40px;
   padding: 0;
-  color: ${(p) => (p.$active ? "#111" : "#ccc")};
-  background: ${(p) => (p.$active ? "#fff" : "#262626")};
+  color: ${(p) => (p.$active ? "#111" : "#bbb")};
+  background: ${(p) => (p.$active ? "#fff" : "#1d1d1d")};
   border: none;
   border-radius: 10px;
   cursor: pointer;

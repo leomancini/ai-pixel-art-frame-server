@@ -35,7 +35,7 @@ export const Centered = styled.div`
 
 export const Muted = styled.div`
   font-size: 20px;
-  color: #888;
+  color: #777;
   text-align: center;
 `;
 
@@ -48,7 +48,7 @@ export const Title = styled.h1`
 export const SectionTitle = styled.h2`
   font-size: 20px;
   font-weight: normal;
-  color: #aaa;
+  color: #999;
   margin: 0 0 4px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -59,8 +59,8 @@ export const Input = styled.input`
   padding: 12px 16px;
   font-size: 20px;
   color: #eee;
-  background: #161616;
-  border: 2px solid #555;
+  background: #111111;
+  border: 2px solid #444;
   border-radius: 12px;
   outline: none;
   resize: vertical;
@@ -74,8 +74,8 @@ export const Input = styled.input`
   }
   &::placeholder,
   &:disabled::placeholder {
-    color: #666;
-    -webkit-text-fill-color: #666;
+    color: #555;
+    -webkit-text-fill-color: #555;
     opacity: 1;
   }
 `;
@@ -84,8 +84,8 @@ export const Select = styled.select`
   padding: 12px 16px;
   font-size: 20px;
   color: #eee;
-  background: #161616;
-  border: 2px solid #555;
+  background: #111111;
+  border: 2px solid #444;
   border-radius: 12px;
   outline: none;
   cursor: pointer;
@@ -112,7 +112,7 @@ export const Button = styled.button`
 export const GhostButton = styled.button`
   padding: 12px 16px;
   font-size: 20px;
-  color: #ccc;
+  color: #bbb;
   background: transparent;
   border: 2px solid #fff;
   border-radius: 10px;
@@ -131,7 +131,7 @@ export const GhostButton = styled.button`
 export const Tab = styled.button`
   padding: 8px 16px;
   font-size: 20px;
-  color: ${(p) => (p.$active ? "#111" : "#bbb")};
+  color: ${(p) => (p.$active ? "#111" : "#aaa")};
   background: ${(p) => (p.$active ? "#eee" : "transparent")};
   border: 2px solid #fff;
   border-radius: 999px;

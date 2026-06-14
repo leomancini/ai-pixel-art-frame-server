@@ -46,7 +46,7 @@ const SignInButton = styled.button`
 
 const Error = styled.div`
   font-size: 20px;
-  color: #ccc;
+  color: #bbb;
   max-width: 320px;
   text-align: center;
 `;

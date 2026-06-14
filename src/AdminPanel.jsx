@@ -35,14 +35,14 @@ const Grow = styled.div`
 
 const Sub = styled.div`
   font-size: 20px;
-  color: #777;
+  color: #666;
   word-break: break-all;
 `;
 
 const KeyBox = styled.div`
   padding: 12px 0;
   font-size: 20px;
-  color: #ddd;
+  color: #ccc;
   word-break: break-all;
 `;
 
@@ -123,7 +123,7 @@ export default function AdminPanel({ onFramesChanged }) {
 
   return (
     <Wrap>
-      {err && <Muted style={{ color: "#ccc" }}>{err}</Muted>}
+      {err && <Muted style={{ color: "#bbb" }}>{err}</Muted>}
 
       <Section>
         <SectionTitle>Frames</SectionTitle>

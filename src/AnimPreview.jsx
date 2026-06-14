@@ -89,7 +89,7 @@ export default function AnimPreview({ src, shimmer }) {
       drawGrid(ctx, canvas, (x, y) => {
         // Wide, smooth diagonal band sweeping black -> grey -> black.
         const v = (Math.sin((x + y) * 0.2 - t * 0.12) + 1) / 2;
-        const g = Math.round(v * 110);
+        const g = Math.round(v * 90);
         return [g, g, g];
       });
       t += 1;
