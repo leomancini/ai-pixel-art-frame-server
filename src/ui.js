@@ -18,6 +18,10 @@ export const Page = styled.div`
   background: #000;
   color: #eee;
   font-family: var(--pixel-font);
+  @media (min-width: 641px) {
+    padding-top: 48px;
+    padding-bottom: 48px;
+  }
 `;
 
 export const Centered = styled.div`
@@ -63,7 +67,12 @@ export const Input = styled.input`
   border: 2px solid #444;
   border-radius: 12px;
   outline: none;
-  resize: vertical;
+  resize: none;
+  @media (hover: hover) {
+    &:hover {
+      border-color: #888;
+    }
+  }
   &:focus {
     border-color: #fff;
   }
@@ -89,6 +98,11 @@ export const Select = styled.select`
   border-radius: 12px;
   outline: none;
   cursor: pointer;
+  @media (hover: hover) {
+    &:hover {
+      border-color: #888;
+    }
+  }
   &:focus {
     border-color: #fff;
   }
@@ -103,6 +117,14 @@ export const Button = styled.button`
   border-radius: 12px;
   cursor: pointer;
   white-space: nowrap;
+  @media (hover: hover) {
+    &:hover {
+      background: #f2f2f2;
+    }
+  }
+  &:active {
+    background: #fff;
+  }
   &:disabled {
     opacity: 0.4;
     cursor: default;
@@ -118,6 +140,14 @@ export const GhostButton = styled.button`
   border-radius: 10px;
   cursor: pointer;
   white-space: nowrap;
+  @media (hover: hover) {
+    &:hover {
+      color: #ddd;
+    }
+  }
+  &:active {
+    color: #fff;
+  }
   &:disabled {
     opacity: 0.4;
     cursor: default;
@@ -132,6 +162,14 @@ export const Tab = styled.button`
   border: 2px solid #fff;
   border-radius: 999px;
   cursor: pointer;
+  @media (hover: hover) {
+    &:hover {
+      color: ${(p) => (p.$active ? "#111" : "#ccc")};
+    }
+  }
+  &:active {
+    color: ${(p) => (p.$active ? "#111" : "#fff")};
+  }
 `;
 
 export const Header = styled.div`

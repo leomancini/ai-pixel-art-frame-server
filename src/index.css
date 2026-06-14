@@ -83,16 +83,13 @@ button {
   transition: none;
 }
 
-/* Hover feedback only on devices that actually hover (desktop). */
-@media (hover: hover) {
-  button:not(:disabled):hover {
-    opacity: 0.85;
-  }
+::selection {
+  background: #fff;
+  color: #000;
 }
-
-/* Instant press feedback for every button. */
-button:not(:disabled):active {
-  opacity: 0.55;
+::-moz-selection {
+  background: #fff;
+  color: #000;
 }
 
 /* Center all text on mobile. */

@@ -35,13 +35,23 @@ const Content = styled.div`
 const PromptForm = styled.form`
   display: flex;
   gap: 10px;
-  align-items: flex-start;
-  width: min(560px, 90vw);
+  align-items: stretch;
+  width: min(1100px, 92vw);
+  /* Desktop: single-line textarea (button height), fills width, button right. */
+  & > textarea {
+    box-sizing: border-box;
+    height: 48px;
+    min-height: 48px;
+  }
   @media (max-width: 640px) {
     flex-direction: column;
     align-items: stretch;
     gap: 16px;
     width: 92vw;
+    & > textarea {
+      height: auto;
+      min-height: 0;
+    }
   }
 `;
 
@@ -74,6 +84,14 @@ const Card = styled.button`
   & > * {
     pointer-events: none;
   }
+  @media (hover: hover) {
+    &:hover {
+      box-shadow: inset 0 0 0 2px ${(p) => (p.$active ? "#fff" : "#888")};
+    }
+  }
+  &:active {
+    box-shadow: inset 0 0 0 2px #fff;
+  }
 `;
 
 
@@ -94,6 +112,14 @@ const Name = styled.div`
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  @media (hover: hover) {
+    ${Card}:hover & {
+      color: ${(p) => (p.$active ? "#fff" : "#aaa")};
+    }
+  }
+  ${Card}:active & {
+    color: ${(p) => (p.$active ? "#fff" : "#ccc")};
+  }
 `;
 
 // Gallery card: tap selects; long-press confirms deletion.
@@ -171,7 +197,14 @@ export default function FrameControl({ frame, refresh }) {
   };
   useEffect(loadLists, [frame.id]);
 
-  const active = frame.active || {};
+  // Optimistic selection so the active border doesn't flicker while the
+  // activate request round-trips; cleared once the server's state catches up.
+  const [optimistic, setOptimistic] = useState(null);
+  useEffect(() => {
+    setOptimistic(null);
+  }, [frame.active?.kind, frame.active?.presetKey, frame.active?.galleryId]);
+
+  const active = optimistic || frame.active || {};
   const isActivePreset = (key) => active.kind === "preset" && active.presetKey === key;
   const isActiveGallery = (id) => active.kind === "gallery" && active.galleryId === id;
 
@@ -197,11 +230,13 @@ export default function FrameControl({ frame, refresh }) {
   };
 
   const activatePreset = async (key) => {
+    setOptimistic({ kind: "preset", presetKey: key });
     await api.post(`/api/frames/${frame.id}/presets/${key}/activate`);
     refresh();
   };
 
   const activateGallery = async (id) => {
+    setOptimistic({ kind: "gallery", galleryId: id });
     await api.post(`/api/frames/${frame.id}/gallery/${id}/activate`);
     refresh();
   };

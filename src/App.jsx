@@ -11,7 +11,7 @@ const Settings = styled.div`
   flex-direction: column;
   align-items: stretch;
   gap: 24px;
-  width: ${(p) => (p.$wide ? "min(1100px, 92vw)" : "min(560px, 92vw)")};
+  width: min(1100px, 92vw);
   text-align: left;
 `;
 
@@ -26,6 +26,9 @@ const SettingRow = styled.div`
   align-items: flex-start;
   gap: 14px;
   padding: 16px 0;
+  &:first-child {
+    padding-top: 0;
+  }
 `;
 
 const RowLabel = styled.div`
@@ -44,6 +47,19 @@ const LogoutButton = styled(GhostButton)`
   width: 100%;
   color: #ff5555;
   border-color: #ff5555;
+  @media (min-width: 641px) {
+    width: auto;
+  }
+  @media (hover: hover) {
+    &:hover {
+      color: #ff8080;
+      border-color: #ff8080;
+    }
+  }
+  &:active {
+    color: #ffb3b3;
+    border-color: #ffb3b3;
+  }
 `;
 
 const FrameLabel = styled.div`
@@ -69,6 +85,14 @@ const IconButton = styled.button`
   border: none;
   border-radius: 10px;
   cursor: pointer;
+  @media (hover: hover) {
+    &:hover {
+      color: ${(p) => (p.$active ? "#111" : "#ddd")};
+    }
+  }
+  &:active {
+    color: ${(p) => (p.$active ? "#111" : "#fff")};
+  }
 `;
 
 const GearIcon = () => (
@@ -91,6 +115,10 @@ const GearIcon = () => (
 const NickForm = styled.form`
   display: flex;
   width: 100%;
+  /* One homepage grid column wide on desktop (4 cols, 16px gaps). */
+  @media (min-width: 641px) {
+    width: calc((min(1100px, 92vw) - 48px) / 4);
+  }
 `;
 
 // Lets a user rename a frame they can access. Auto-saves (debounced) as they

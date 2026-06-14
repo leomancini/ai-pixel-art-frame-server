@@ -28,6 +28,9 @@ const SignInButton = styled.button`
   letter-spacing: 0.04em;
   text-transform: uppercase;
   width: min(560px, 92vw);
+  @media (min-width: 641px) {
+    width: auto;
+  }
   padding: 12px 20px;
   color: #111;
   background: #eee;
@@ -35,6 +38,14 @@ const SignInButton = styled.button`
   border-radius: 12px;
   cursor: pointer;
   white-space: nowrap;
+  @media (hover: hover) {
+    &:hover {
+      background: #f2f2f2;
+    }
+  }
+  &:active {
+    background: #fff;
+  }
   &:disabled {
     opacity: 0.4;
     cursor: default;
