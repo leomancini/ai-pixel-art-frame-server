@@ -1,14 +1,68 @@
+/*
+ * Analog Mono Plus — pixel font usage rules (from the font author):
+ *   - Recommended font size: 20px, or multiples (20, 40, 60, 80, ...) ONLY.
+ *   - Disable anti-aliasing (see `body` font-smoothing below) for crisp pixels.
+ */
+@font-face {
+  font-family: "Analog Mono Plus";
+  src: url("/fonts/AnalogMonoPlus.ttf") format("truetype");
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --pixel-font: "Analog Mono Plus", "Courier New", monospace;
+}
+
+html,
+body {
+  background: #000;
+}
+
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Oxygen",
-    "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans", "Helvetica Neue",
-    sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  font-family: var(--pixel-font);
+  font-size: 20px;
+  text-transform: uppercase;
+  -webkit-font-smoothing: none;
+  -moz-osx-font-smoothing: unset;
+  font-smooth: never;
 }
 
 code {
-  font-family: source-code-pro, Menlo, Monaco, Consolas, "Courier New",
-    monospace;
+  font-family: var(--pixel-font);
+}
+
+/* Form controls don't inherit font-family — force the pixel font + caps on them. */
+button,
+input,
+textarea,
+select {
+  font-family: var(--pixel-font);
+  text-transform: uppercase;
+}
+
+input::placeholder,
+textarea::placeholder {
+  text-transform: uppercase;
+}
+
+button {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  transition: transform 0.06s ease;
+}
+
+button:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+/* Center all text on mobile. */
+@media (max-width: 640px) {
+  body {
+    text-align: center;
+  }
 }
 

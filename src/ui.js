@@ -1,44 +1,51 @@
 // Shared styled-components for the dark pixel-frame aesthetic.
+//
+// TYPOGRAPHY RULE (Analog Mono Plus pixel font):
+//   - Recommended font size: 20px, or multiples (20, 40, 60, 80, …) ONLY.
+//   - Anti-aliasing must stay DISABLED for crisp pixels (see index.css).
+// Don't introduce off-grid sizes — they render blurry.
 import styled from "styled-components";
 
 export const Page = styled.div`
   min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 32px;
   padding: 32px 24px 64px;
-  background: #0b0b0f;
+  background: #000;
   color: #eee;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: var(--pixel-font);
 `;
 
 export const Centered = styled.div`
   min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 24px;
-  background: #0b0b0f;
+  gap: 40px;
+  background: #000;
   color: #eee;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: var(--pixel-font);
 `;
 
 export const Muted = styled.div`
-  font-size: 14px;
+  font-size: 20px;
   color: #888;
   text-align: center;
 `;
 
 export const Title = styled.h1`
-  font-size: 22px;
+  font-size: 40px;
   font-weight: 600;
   margin: 0;
 `;
 
 export const SectionTitle = styled.h2`
-  font-size: 15px;
+  font-size: 20px;
   font-weight: 600;
   color: #aaa;
   margin: 0 0 4px;
@@ -49,14 +56,15 @@ export const SectionTitle = styled.h2`
 export const Input = styled.input`
   flex: 1;
   padding: 12px 16px;
-  font-size: 15px;
+  font-size: 20px;
   color: #eee;
-  background: #16161d;
-  border: 2px solid #26262f;
+  background: #161616;
+  border: 2px solid #555;
   border-radius: 12px;
   outline: none;
+  resize: vertical;
   &:focus {
-    border-color: #3a3a48;
+    border-color: #fff;
   }
   &::placeholder {
     color: #666;
@@ -65,10 +73,10 @@ export const Input = styled.input`
 
 export const Button = styled.button`
   padding: 12px 20px;
-  font-size: 15px;
-  color: #0b0b0f;
+  font-size: 20px;
+  color: #111;
   background: #eee;
-  border: none;
+  border: 2px solid #fff;
   border-radius: 12px;
   cursor: pointer;
   white-space: nowrap;
@@ -80,15 +88,15 @@ export const Button = styled.button`
 
 export const GhostButton = styled.button`
   padding: 8px 14px;
-  font-size: 13px;
+  font-size: 20px;
   color: #ccc;
   background: transparent;
-  border: 1px solid #2a2a34;
+  border: 2px solid #fff;
   border-radius: 10px;
   cursor: pointer;
   white-space: nowrap;
   &:hover {
-    border-color: #44444f;
+    border-color: #fff;
     color: #fff;
   }
   &:disabled {
@@ -99,10 +107,10 @@ export const GhostButton = styled.button`
 
 export const Tab = styled.button`
   padding: 8px 16px;
-  font-size: 14px;
-  color: ${(p) => (p.$active ? "#0b0b0f" : "#bbb")};
+  font-size: 20px;
+  color: ${(p) => (p.$active ? "#111" : "#bbb")};
   background: ${(p) => (p.$active ? "#eee" : "transparent")};
-  border: 1px solid ${(p) => (p.$active ? "#eee" : "#2a2a34")};
+  border: 2px solid #fff;
   border-radius: 999px;
   cursor: pointer;
 `;

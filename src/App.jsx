@@ -19,15 +19,58 @@ const Spacer = styled.div`
   flex: 1;
 `;
 
+const Settings = styled.div`
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  width: min(1100px, 92vw);
+`;
+
 const Who = styled.div`
-  font-size: 13px;
+  font-size: 20px;
   color: #888;
 `;
+
+const IconButton = styled.button`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  color: ${(p) => (p.$active ? "#fff" : "#ccc")};
+  background: ${(p) => (p.$active ? "#262626" : "transparent")};
+  border: 2px solid #fff;
+  border-radius: 10px;
+  cursor: pointer;
+  &:hover {
+    border-color: #fff;
+    color: #fff;
+  }
+`;
+
+const GearIcon = () => (
+  <svg
+    width="20"
+    height="20"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <circle cx="12" cy="12" r="3" />
+    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+  </svg>
+);
 
 function Main({ user }) {
   const [frames, setFrames] = useState(null);
   const [selectedId, setSelectedId] = useState(null);
-  const [view, setView] = useState("frames"); // "frames" | "admin"
+  const [view, setView] = useState("frames"); // "frames" | "settings"
 
   const loadFrames = useCallback(
     () =>
@@ -53,29 +96,29 @@ function Main({ user }) {
   return (
     <Page>
       <Header>
-        {user.isAdmin && (
-          <>
-            <Tab $active={view === "frames"} onClick={() => setView("frames")}>
-              Frames
-            </Tab>
-            <Tab $active={view === "admin"} onClick={() => setView("admin")}>
-              Admin
-            </Tab>
-          </>
-        )}
         <Spacer />
-        <Who>{user.email}</Who>
-        <GhostButton onClick={logout}>Sign out</GhostButton>
+        <IconButton
+          $active={view === "settings"}
+          onClick={() => setView(view === "settings" ? "frames" : "settings")}
+          aria-label="Settings"
+          title="Settings"
+        >
+          <GearIcon />
+        </IconButton>
       </Header>
 
-      {view === "admin" && user.isAdmin ? (
-        <AdminPanel onFramesChanged={loadFrames} />
+      {view === "settings" ? (
+        <Settings>
+          <Who>{user.email}</Who>
+          <GhostButton onClick={logout}>Sign out</GhostButton>
+          {user.isAdmin && <AdminPanel onFramesChanged={loadFrames} />}
+        </Settings>
       ) : frames === null ? (
         <Muted>Loading…</Muted>
       ) : frames.length === 0 ? (
         <Muted>
           No frames assigned to you yet.
-          {user.isAdmin ? " Add one in the Admin tab." : " Ask the admin for access."}
+          {user.isAdmin ? " Add one in Settings (gear, top right)." : " Ask the admin for access."}
         </Muted>
       ) : (
         <>
@@ -114,11 +157,8 @@ export default function App() {
   }, [loadMe]);
 
   if (user === undefined) {
-    return (
-      <Centered>
-        <Muted>Loading…</Muted>
-      </Centered>
-    );
+    // Show a plain black page until we know the auth state.
+    return <Centered />;
   }
   if (!user) return <Login onSignedIn={loadMe} />;
   return <Main user={user} />;

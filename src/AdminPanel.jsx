@@ -26,8 +26,8 @@ const Item = styled.div`
   align-items: center;
   gap: 12px;
   padding: 12px 14px;
-  background: #16161d;
-  border: 1px solid #22222b;
+  background: #161616;
+  border: 1px solid #222;
   border-radius: 12px;
 `;
 
@@ -37,18 +37,18 @@ const Grow = styled.div`
 `;
 
 const Sub = styled.div`
-  font-size: 12px;
+  font-size: 20px;
   color: #777;
   word-break: break-all;
 `;
 
 const KeyBox = styled.div`
   padding: 12px 14px;
-  background: #11210f;
-  border: 1px solid #2c5026;
+  background: #161616;
+  border: 1px solid #555;
   border-radius: 12px;
-  font-size: 13px;
-  color: #cfe9c9;
+  font-size: 20px;
+  color: #ddd;
   word-break: break-all;
 `;
 
@@ -62,7 +62,7 @@ const Check = styled.label`
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 13px;
+  font-size: 20px;
   color: #ccc;
   cursor: pointer;
 `;
@@ -136,7 +136,7 @@ export default function AdminPanel({ onFramesChanged }) {
 
   return (
     <Wrap>
-      {err && <Muted style={{ color: "#ff6b6b" }}>{err}</Muted>}
+      {err && <Muted style={{ color: "#ccc" }}>{err}</Muted>}
 
       <Section>
         <SectionTitle>Frames</SectionTitle>

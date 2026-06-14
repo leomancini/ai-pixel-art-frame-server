@@ -7,12 +7,18 @@ import { Input, Button, Row } from "./ui";
 const PromptForm = styled.form`
   display: flex;
   gap: 10px;
+  align-items: flex-start;
   width: min(560px, 90vw);
+  @media (max-width: 640px) {
+    flex-direction: column;
+    align-items: stretch;
+    width: 92vw;
+  }
 `;
 
 const Status = styled.div`
-  font-size: 14px;
-  color: ${(p) => (p.$error ? "#ff6b6b" : "#888")};
+  font-size: 20px;
+  color: ${(p) => (p.$error ? "#ccc" : "#888")};
   min-height: 1.2em;
   text-align: center;
 `;
@@ -24,7 +30,7 @@ const Card = styled.div`
   align-items: center;
   gap: 12px;
   padding: 12px;
-  background: ${(p) => (p.$active ? "#1e1e26" : "transparent")};
+  background: ${(p) => (p.$active ? "#1e1e1e" : "transparent")};
   border: none;
   border-radius: 14px;
   cursor: pointer;
@@ -38,7 +44,7 @@ const Card = styled.div`
 `;
 
 const Name = styled.div`
-  font-size: 15px;
+  font-size: 20px;
   color: ${(p) => (p.$active ? "#fff" : "#888")};
   max-width: 160px;
   text-align: center;
@@ -54,7 +60,7 @@ const DeleteX = styled.button`
   border: none;
   background: rgba(0, 0, 0, 0.55);
   color: #fff;
-  font-size: 13px;
+  font-size: 20px;
   line-height: 1;
   cursor: pointer;
   opacity: 0;
@@ -62,7 +68,7 @@ const DeleteX = styled.button`
     opacity: 1;
   }
   &:hover {
-    background: #c0392b;
+    background: #555;
   }
 `;
 
@@ -131,6 +137,8 @@ export default function FrameControl({ frame, refresh }) {
     <>
       <PromptForm onSubmit={generate}>
         <Input
+          as="textarea"
+          rows={3}
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
           placeholder="Describe an animation… e.g. rain on a city skyline"
