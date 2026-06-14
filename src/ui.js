@@ -61,6 +61,8 @@ export const SectionTitle = styled.h2`
 export const Input = styled.input`
   flex: 1;
   min-width: 0;
+  box-sizing: border-box;
+  height: 48px;
   padding: 12px 16px;
   font-size: 20px;
   color: #eee;
@@ -70,12 +72,12 @@ export const Input = styled.input`
   outline: none;
   resize: none;
   @media (hover: hover) {
-    &:hover {
+    &:not(:disabled):hover {
       border-color: #888;
     }
   }
   &:focus {
-    border-color: #fff;
+    border-color: #888;
   }
   &:disabled {
     opacity: 1;
@@ -91,6 +93,8 @@ export const Input = styled.input`
 `;
 
 export const Select = styled.select`
+  box-sizing: border-box;
+  height: 48px;
   padding: 12px 16px;
   font-size: 20px;
   color: #eee;
@@ -100,31 +104,32 @@ export const Select = styled.select`
   outline: none;
   cursor: pointer;
   @media (hover: hover) {
-    &:hover {
+    &:not(:disabled):hover {
       border-color: #888;
     }
   }
   &:focus {
-    border-color: #fff;
+    border-color: #888;
   }
 `;
 
 export const Button = styled.button`
-  padding: 12px 20px;
+  box-sizing: border-box;
+  height: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 20px;
   font-size: 20px;
   color: #111;
-  background: #eee;
+  background: #fff;
   border: 2px solid #fff;
   border-radius: 12px;
   cursor: pointer;
   white-space: nowrap;
-  @media (hover: hover) {
-    &:hover {
-      background: #f2f2f2;
-    }
-  }
-  &:active {
-    background: #fff;
+  &:not(:disabled):active {
+    background: #ccc;
+    border-color: #ccc;
   }
   &:disabled {
     opacity: 0.4;
@@ -133,7 +138,12 @@ export const Button = styled.button`
 `;
 
 export const GhostButton = styled.button`
-  padding: 12px 16px;
+  box-sizing: border-box;
+  height: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 16px;
   font-size: 20px;
   color: #bbb;
   background: transparent;
@@ -142,11 +152,11 @@ export const GhostButton = styled.button`
   cursor: pointer;
   white-space: nowrap;
   @media (hover: hover) {
-    &:hover {
+    &:not(:disabled):hover {
       color: #ddd;
     }
   }
-  &:active {
+  &:not(:disabled):active {
     color: #fff;
   }
   &:disabled {
@@ -156,7 +166,12 @@ export const GhostButton = styled.button`
 `;
 
 export const Tab = styled.button`
-  padding: 8px 16px;
+  box-sizing: border-box;
+  height: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 16px;
   font-size: 20px;
   color: ${(p) => (p.$active ? "#111" : "#aaa")};
   background: ${(p) => (p.$active ? "#eee" : "transparent")};
@@ -164,11 +179,11 @@ export const Tab = styled.button`
   border-radius: 999px;
   cursor: pointer;
   @media (hover: hover) {
-    &:hover {
+    &:not(:disabled):hover {
       color: ${(p) => (p.$active ? "#111" : "#ccc")};
     }
   }
-  &:active {
+  &:not(:disabled):active {
     color: ${(p) => (p.$active ? "#111" : "#fff")};
   }
 `;
@@ -185,9 +200,10 @@ export const Header = styled.div`
 export const Row = styled.div`
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 16px;
+  gap: 24px;
   width: min(1100px, 92vw);
   @media (max-width: 640px) {
     grid-template-columns: 1fr 1fr;
+    gap: 16px;
   }
 `;

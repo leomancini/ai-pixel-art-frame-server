@@ -51,14 +51,14 @@ const LogoutButton = styled(GhostButton)`
     width: auto;
   }
   @media (hover: hover) {
-    &:hover {
-      color: #ff8080;
-      border-color: #ff8080;
+    &:not(:disabled):hover {
+      color: #d94545;
+      border-color: #d94545;
     }
   }
-  &:active {
-    color: #ffb3b3;
-    border-color: #ffb3b3;
+  &:not(:disabled):active {
+    color: #b33636;
+    border-color: #b33636;
   }
 `;
 
@@ -74,11 +74,12 @@ const FrameLabel = styled.div`
 `;
 
 const IconButton = styled.button`
+  box-sizing: border-box;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
+  width: 48px;
+  height: 48px;
   padding: 0;
   color: ${(p) => (p.$active ? "#111" : "#bbb")};
   background: ${(p) => (p.$active ? "#fff" : "#1d1d1d")};
@@ -86,19 +87,21 @@ const IconButton = styled.button`
   border-radius: 10px;
   cursor: pointer;
   @media (hover: hover) {
-    &:hover {
-      color: ${(p) => (p.$active ? "#111" : "#ddd")};
+    &:not(:disabled):hover {
+      color: ${(p) => (p.$active ? "#111" : "#fff")};
+      background: ${(p) => (p.$active ? "#fff" : "#2e2e2e")};
     }
   }
-  &:active {
+  &:not(:disabled):active {
     color: ${(p) => (p.$active ? "#111" : "#fff")};
+    background: ${(p) => (p.$active ? "#ddd" : "#3a3a3a")};
   }
 `;
 
 const GearIcon = () => (
   <svg
-    width="20"
-    height="20"
+    width="24"
+    height="24"
     viewBox="0 0 24 24"
     fill="none"
     stroke="currentColor"
@@ -115,10 +118,10 @@ const GearIcon = () => (
 const NickForm = styled.form`
   display: flex;
   width: 100%;
-  /* Desktop: exactly one homepage grid column (4 cols, 16px gaps).
+  /* Desktop: exactly one homepage grid column (4 cols, 24px gaps).
      min() of flat calc()s — nesting min() inside a calc division breaks iOS. */
   @media (min-width: 641px) {
-    width: min(263px, calc((92vw - 48px) / 4));
+    width: min(257px, calc((92vw - 72px) / 4));
   }
 `;
 

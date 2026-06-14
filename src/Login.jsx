@@ -27,24 +27,25 @@ const SignInButton = styled.button`
   font-size: 20px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+  box-sizing: border-box;
+  height: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: min(560px, 92vw);
   @media (min-width: 641px) {
     width: auto;
   }
-  padding: 12px 20px;
+  padding: 0 20px;
   color: #111;
-  background: #eee;
+  background: #fff;
   border: 2px solid #fff;
   border-radius: 12px;
   cursor: pointer;
   white-space: nowrap;
-  @media (hover: hover) {
-    &:hover {
-      background: #f2f2f2;
-    }
-  }
-  &:active {
-    background: #fff;
+  &:not(:disabled):active {
+    background: #ccc;
+    border-color: #ccc;
   }
   &:disabled {
     opacity: 0.4;
@@ -122,15 +123,10 @@ export default function Login({ onSignedIn }) {
     };
   }, [onSignedIn]);
 
-  // While signing in, show just the title (loading) — no start button flash.
+  // While signing in, show the plain loading screen (same as the app's initial
+  // load) — never the start screen.
   if (signingIn) {
-    return (
-      <Centered>
-        <Title>
-          AI Pixel <MobileBreak />Art Frame
-        </Title>
-      </Centered>
-    );
+    return <Centered />;
   }
 
   return (

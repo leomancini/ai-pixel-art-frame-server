@@ -37,21 +37,11 @@ const PromptForm = styled.form`
   gap: 10px;
   align-items: stretch;
   width: min(1100px, 92vw);
-  /* Desktop: single-line textarea (button height), fills width, button right. */
-  & > textarea {
-    box-sizing: border-box;
-    height: 48px;
-    min-height: 48px;
-  }
   @media (max-width: 640px) {
     flex-direction: column;
     align-items: stretch;
     gap: 16px;
     width: 92vw;
-    & > textarea {
-      height: auto;
-      min-height: 0;
-    }
   }
 `;
 
@@ -249,8 +239,6 @@ export default function FrameControl({ frame, refresh }) {
     <Content>
       <PromptForm onSubmit={generate}>
         <Input
-          as="textarea"
-          rows={3}
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
           placeholder="Describe an animation"
