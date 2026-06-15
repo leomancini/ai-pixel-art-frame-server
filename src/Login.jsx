@@ -69,16 +69,22 @@ export default function Login({ onSignedIn }) {
   const [signingIn, setSigningIn] = useState(false);
   const authStartedRef = useRef(false); // true once Google returns a credential
 
-  // Click the real (hidden) Google button to launch the popup; fall back to
-  // One Tap if the rendered button isn't there yet. Show the loading screen
-  // immediately so the start page never reappears during sign-in.
+  // Click the real (hidden) Google button to launch the popup. We avoid the
+  // One Tap / prompt() path because it relies on FedCM, which fails when the
+  // user has it disabled. Show the loading screen immediately so the start
+  // page never reappears during sign-in.
   const signIn = () => {
     authStartedRef.current = false;
     setError("");
+    const btn = hostRef.current?.querySelector(
+      'div[role="button"], [role="button"], button'
+    );
+    if (!btn) {
+      setError("Sign-in isn't ready yet — please try again.");
+      return;
+    }
+    btn.click();
     setSigningIn(true);
-    const btn = hostRef.current?.querySelector("div[role=button]");
-    if (btn) btn.click();
-    else window.google?.accounts?.id?.prompt();
   };
 
   // If the user dismisses the Google popup without authenticating, focus
