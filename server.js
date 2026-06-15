@@ -567,6 +567,49 @@ app.get("/api/config", (req, res) => {
   res.json({ googleClientId: GOOGLE_CLIENT_ID });
 });
 
+// Web app manifest, served dynamically. A *valid* (named) manifest is required
+// for iOS to honor background_color, which paints the launch/cross-fade backdrop
+// black and prevents the intermittent grey flash before the page's CSS paints.
+// The name follows the user's frame (read from the session cookie via the
+// crossorigin="use-credentials" manifest link); it falls back to the app name.
+app.get("/manifest.json", (req, res) => {
+  let name = "AI Pixel Art Frame";
+  const u = currentUser(req);
+  if (u) {
+    const frames = u.isAdmin
+      ? db.prepare("SELECT name FROM frames ORDER BY name").all()
+      : db
+          .prepare(
+            `SELECT f.name FROM frames f
+             JOIN frame_access a ON a.frame_id = f.id
+             WHERE a.user_id = ? ORDER BY f.name`
+          )
+          .all(u.uid);
+    if (frames.length === 1) name = frames[0].name;
+  }
+  res.set("Cache-Control", "no-store");
+  res.set("Content-Type", "application/manifest+json");
+  res.send(
+    JSON.stringify({
+      name,
+      short_name: name,
+      display: "standalone",
+      orientation: "portrait",
+      start_url: "/",
+      background_color: "#000000",
+      theme_color: "#000000",
+      icons: [
+        {
+          src: "/apple-touch-icon.png",
+          sizes: "180x180",
+          type: "image/png",
+          purpose: "any maskable",
+        },
+      ],
+    })
+  );
+});
+
 // Exchange a Google ID token for a session. Sign-in is gated: only the admin
 // email or a pre-provisioned user (a row added by the admin) is allowed.
 app.post("/api/auth/google", async (req, res) => {

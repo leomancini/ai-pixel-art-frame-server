@@ -10,9 +10,11 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <!-- No "name" here on purpose: keeps the dynamic <title> (frame name) as the
-         home-screen label, while background_color sets the launch backdrop. -->
-    <link rel="manifest" href="/manifest.json" />
+    <!-- Served dynamically by the server (name = the user's frame). A valid,
+         named manifest is required for iOS to honor background_color, which
+         paints the launch backdrop black and prevents the intermittent grey
+         flash. use-credentials so the session cookie reaches the server. -->
+    <link rel="manifest" href="/manifest.json" crossorigin="use-credentials" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <!-- Black launch screens (glyph centered) so the standalone iOS app never
          flashes the default grey launch screen before the web view paints. -->
