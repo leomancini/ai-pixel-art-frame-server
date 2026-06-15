@@ -71,10 +71,10 @@ const Card = styled.button`
   align-items: stretch;
   min-width: 0;
   width: 100%;
-  gap: 12px;
+  gap: 16px;
   /* Padding shrinks the preview grid inside the card so the LED dots read a bit
-     smaller. Mobile gets a modest bump; desktop more (with extra grid-to-title
-     space). The dots scale with the preview, so smaller preview = smaller dots. */
+     smaller. Mobile gets a modest bump; desktop more. gap is the space between
+     the grid and the title. Dots scale with the preview, so smaller = smaller. */
   padding: 24px 24px 22px;
   @media (min-width: 641px) {
     padding: 28px 28px 22px;
