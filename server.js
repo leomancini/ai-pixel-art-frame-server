@@ -862,7 +862,13 @@ function slugify(name) {
 app.get("/api/admin/frames", requireAdmin, (req, res) => {
   const frames = db.prepare("SELECT * FROM frames ORDER BY id").all();
   res.json(
-    frames.map((f) => ({ id: f.id, slug: f.slug, name: f.name, createdAt: f.created_at }))
+    frames.map((f) => ({
+      id: f.id,
+      slug: f.slug,
+      name: f.name,
+      createdAt: f.created_at,
+      hasApiKey: !!f.anthropic_api_key,
+    }))
   );
 });
 

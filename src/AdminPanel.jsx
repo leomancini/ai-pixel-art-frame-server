@@ -66,6 +66,12 @@ const Sep = styled.span`
 const SelectField = styled.div`
   position: relative;
   display: inline-flex;
+  /* Min width of one homepage grid column, matching the buttons. */
+  min-width: min(257px, calc((92vw - 72px) / 4));
+  & > select {
+    flex: 1;
+    min-width: 0;
+  }
 `;
 
 const SelectArrow = styled.span`
@@ -200,6 +206,12 @@ export default function AdminPanel({ onFramesChanged, onReady }) {
               {f.name}
               <Sep>/</Sep>
               <Sub>{f.slug}</Sub>
+              {f.hasApiKey && (
+                <>
+                  <Sep>/</Sep>
+                  <Sub>own key</Sub>
+                </>
+              )}
             </Grow>
             <GreyButton onClick={() => rotateKey(f)}>Rotate key</GreyButton>
             <DangerButton onClick={() => deleteFrame(f)}>Delete</DangerButton>
