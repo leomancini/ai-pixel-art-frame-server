@@ -50,12 +50,6 @@ const PromptForm = styled.form`
   }
 `;
 
-// The prompt is free text. Don't force uppercase on it — text-transform:uppercase
-// disables iOS autocorrect/predictive text. (The placeholder stays uppercased via
-// the global ::placeholder rule.)
-const PromptInput = styled(Input)`
-  text-transform: none;
-`;
 
 const Status = styled.div`
   font-size: 20px;
@@ -310,7 +304,7 @@ export default function FrameControl({ frame, refresh }) {
   return (
     <Content>
       <PromptForm onSubmit={generate}>
-        <PromptInput
+        <Input
           {...(isMobile ? { as: "textarea", rows: 3 } : {})}
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
