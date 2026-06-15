@@ -66,7 +66,7 @@ const FrameLabel = styled.div`
   flex: 1;
   min-width: 0;
   font-size: 40px;
-  color: #eee;
+  color: ${(p) => (p.$loading ? "#555" : "#eee")};
   text-align: left;
   white-space: nowrap;
   overflow: hidden;
@@ -168,6 +168,14 @@ function Main({ user }) {
   const [frames, setFrames] = useState(null);
   const [selectedId, setSelectedId] = useState(null);
   const [view, setView] = useState(() => pathToView(window.location.pathname));
+  const [showLoading, setShowLoading] = useState(false);
+
+  // Only surface "Loading" if the frames take more than a second to arrive.
+  useEffect(() => {
+    if (frames !== null) return;
+    const t = setTimeout(() => setShowLoading(true), 1000);
+    return () => clearTimeout(t);
+  }, [frames]);
 
   // Switch view and keep the URL (/ or /settings) in sync for refresh + back/fwd.
   const goto = useCallback((v) => {
@@ -208,8 +216,14 @@ function Main({ user }) {
   return (
     <Page>
       <Header $wide={user.isAdmin}>
-        <FrameLabel>
-          {frames === null ? "Loading" : selected ? selected.name : ""}
+        <FrameLabel $loading={frames === null && showLoading}>
+          {frames === null
+            ? showLoading
+              ? "Loading"
+              : ""
+            : selected
+            ? selected.name
+            : ""}
         </FrameLabel>
         <IconButton
           $active={view === "settings"}
