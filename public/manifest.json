@@ -1,6 +1,4 @@
 {
-  "name": "AI Pixel Art Frame",
-  "short_name": "AI Pixel Art Frame",
   "display": "standalone",
   "orientation": "portrait",
   "start_url": "/",
