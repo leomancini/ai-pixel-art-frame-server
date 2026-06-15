@@ -745,7 +745,7 @@ app.patch("/api/frames/:id/api-key", requireFrameAccess, (req, res) => {
   const key = (req.body?.apiKey ?? "").trim();
   if (!key) return res.status(400).json({ error: "apiKey is required" });
   if (!key.startsWith("sk-ant-")) {
-    return res.status(400).json({ error: "that doesn't look like an Anthropic API key (sk-ant-...)" });
+    return res.status(400).json({ error: "that doesn't look like an Anthropic API key" });
   }
   if (key.length > 200) return res.status(400).json({ error: "apiKey too long" });
   db.prepare("UPDATE frames SET anthropic_api_key = ? WHERE id = ?").run(key, req.frame.id);
