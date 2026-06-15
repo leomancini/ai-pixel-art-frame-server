@@ -54,10 +54,18 @@ const Spacer = styled.div`
   flex: 1;
 `;
 
-// Frame picker in the header (admin) — same look as the people-list dropdown.
+// Frame picker in the header (admin) — same look as the people-list dropdown,
+// sized to one homepage grid column on desktop.
 const FrameSelectField = styled.div`
   position: relative;
   display: inline-flex;
+  @media (min-width: 641px) {
+    width: min(257px, calc((92vw - 72px) / 4));
+    & > select {
+      flex: 1;
+      min-width: 0;
+    }
+  }
 `;
 
 const HeaderArrow = styled.span`
