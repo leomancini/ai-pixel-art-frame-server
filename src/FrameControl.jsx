@@ -303,7 +303,9 @@ export default function FrameControl({ frame, refresh }) {
           placeholder="Describe an animation"
           maxLength={500}
           disabled={busy}
-          autoComplete="off"
+          autoCorrect="on"
+          autoCapitalize="sentences"
+          spellCheck={true}
           data-1p-ignore="true"
           data-lpignore="true"
         />
