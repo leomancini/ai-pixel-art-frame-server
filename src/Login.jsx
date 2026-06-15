@@ -11,14 +11,35 @@ const MobileBreak = styled.br`
   }
 `;
 
-// Holds the real Google Identity Services button. It must be genuinely visible
-// and clicked by the user — a programmatic click is rejected by GIS, and the
-// One Tap / FedCM path fails when FedCM is disabled, so we render the actual
-// button and let the user click it (popup flow, no FedCM dependency).
-const GoogleHost = styled.div`
-  min-height: 44px;
-  display: flex;
+const SignInButton = styled.button`
+  font-family: var(--pixel-font);
+  font-size: 20px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  box-sizing: border-box;
+  height: 48px;
+  display: inline-flex;
+  align-items: center;
   justify-content: center;
+  width: min(560px, 92vw);
+  @media (min-width: 641px) {
+    width: auto;
+  }
+  padding: 0 20px;
+  color: #111;
+  background: #fff;
+  border: 2px solid #fff;
+  border-radius: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  &:not(:disabled):active {
+    background: #ccc;
+    border-color: #ccc;
+  }
+  &:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
 `;
 
 const Error = styled.div`
@@ -28,12 +49,14 @@ const Error = styled.div`
   text-align: center;
 `;
 
-// Renders the Google sign-in button, exchanges the returned ID token for a
-// session, then calls onSignedIn().
+// Custom Start button → Google OAuth token flow (a real user click opens the
+// popup; no FedCM, no rendered Google button). The access token is verified
+// server-side, which issues our session cookie.
 export default function Login({ onSignedIn }) {
-  const hostRef = useRef(null);
   const [error, setError] = useState("");
+  const [ready, setReady] = useState(false);
   const [signingIn, setSigningIn] = useState(false);
+  const tokenClientRef = useRef(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -46,18 +69,23 @@ export default function Login({ onSignedIn }) {
           return;
         }
         const init = () => {
-          if (cancelled || !hostRef.current) return;
-          if (!window.google?.accounts?.id) {
+          if (cancelled) return;
+          if (!window.google?.accounts?.oauth2) {
             setTimeout(init, 100); // GIS script still loading
             return;
           }
-          window.google.accounts.id.initialize({
+          tokenClientRef.current = window.google.accounts.oauth2.initTokenClient({
             client_id: googleClientId,
+            scope: "openid email profile",
             callback: async (resp) => {
-              setSigningIn(true); // swap to loading while we exchange the token
+              if (resp.error || !resp.access_token) {
+                setSigningIn(false);
+                setError(resp.error || "sign-in failed");
+                return;
+              }
               try {
-                await api.post("/api/auth/google", {
-                  credential: resp.credential,
+                await api.post("/api/auth/google-token", {
+                  accessToken: resp.access_token,
                 });
                 onSignedIn();
               } catch (e) {
@@ -65,14 +93,9 @@ export default function Login({ onSignedIn }) {
                 setError(e.message);
               }
             },
+            error_callback: () => setSigningIn(false), // popup closed/cancelled
           });
-          window.google.accounts.id.renderButton(hostRef.current, {
-            theme: "filled_black",
-            size: "large",
-            text: "continue_with",
-            shape: "pill",
-            width: 280,
-          });
+          setReady(true);
         };
         init();
       })
@@ -82,8 +105,14 @@ export default function Login({ onSignedIn }) {
     };
   }, [onSignedIn]);
 
-  // While signing in, show the plain loading screen (same as the app's initial
-  // load) — never the start screen.
+  const signIn = () => {
+    if (!tokenClientRef.current) return;
+    setError("");
+    tokenClientRef.current.requestAccessToken(); // must run in the click gesture
+    setSigningIn(true);
+  };
+
+  // While signing in, show the plain loading screen — never the start screen.
   if (signingIn) {
     return <Centered />;
   }
@@ -93,7 +122,9 @@ export default function Login({ onSignedIn }) {
       <Title>
         AI Pixel <MobileBreak />Art Frame
       </Title>
-      <GoogleHost ref={hostRef} />
+      <SignInButton onClick={signIn} disabled={!ready}>
+        Start
+      </SignInButton>
       {error && <Error>{error}</Error>}
     </Centered>
   );

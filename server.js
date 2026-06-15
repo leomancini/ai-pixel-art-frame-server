@@ -533,7 +533,56 @@ app.post("/api/auth/google", async (req, res) => {
   if (!payload?.email || !payload.email_verified) {
     return res.status(401).json({ error: "email not verified by Google" });
   }
-  const email = payload.email.trim().toLowerCase();
+  return finishLogin(req, res, {
+    email: payload.email,
+    sub: payload.sub,
+    name: payload.name,
+  });
+});
+
+// Sign in with an OAuth access token from the GIS token flow (used by the
+// custom button — a real user click opens the popup, no FedCM needed). The
+// token is verified to have been issued for THIS app to prevent substitution.
+app.post("/api/auth/google-token", async (req, res) => {
+  if (!GOOGLE_CLIENT_ID) {
+    return res.status(503).json({ error: "sign-in is not configured" });
+  }
+  const accessToken = req.body?.accessToken;
+  if (!accessToken) return res.status(400).json({ error: "accessToken is required" });
+  let info;
+  try {
+    const r = await fetch(
+      "https://oauth2.googleapis.com/tokeninfo?access_token=" +
+        encodeURIComponent(accessToken)
+    );
+    if (!r.ok) throw new Error("tokeninfo failed");
+    info = await r.json();
+  } catch {
+    return res.status(401).json({ error: "invalid Google token" });
+  }
+  if (info.aud !== GOOGLE_CLIENT_ID && info.azp !== GOOGLE_CLIENT_ID) {
+    return res.status(401).json({ error: "token was not issued for this app" });
+  }
+  const verified = info.email_verified === true || info.email_verified === "true";
+  if (!info.email || !verified) {
+    return res.status(401).json({ error: "email not verified by Google" });
+  }
+  // Best-effort display name from the userinfo endpoint.
+  let name = null;
+  try {
+    const ur = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+      headers: { Authorization: "Bearer " + accessToken },
+    });
+    if (ur.ok) name = (await ur.json()).name ?? null;
+  } catch {
+    /* name is optional */
+  }
+  return finishLogin(req, res, { email: info.email, sub: info.sub, name });
+});
+
+// Shared: gate the email, upsert the user, set the session cookie.
+function finishLogin(req, res, { email, sub, name }) {
+  email = email.trim().toLowerCase();
   const isAdmin = email === ADMIN_EMAIL;
 
   let user = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
@@ -544,12 +593,12 @@ app.post("/api/auth/google", async (req, res) => {
   }
   if (!user) {
     db.prepare(
-      "INSERT INTO users (email, google_sub, name, is_admin) VALUES (?, ?, ?, 1)"
-    ).run(email, payload.sub, payload.name ?? null);
+      "INSERT INTO users (email, google_sub, name, is_admin) VALUES (?, ?, ?, ?)"
+    ).run(email, sub ?? null, name ?? null, isAdmin ? 1 : 0);
   } else {
     db.prepare(
-      "UPDATE users SET google_sub = ?, name = COALESCE(?, name), is_admin = ? WHERE id = ?"
-    ).run(payload.sub, payload.name ?? null, isAdmin ? 1 : 0, user.id);
+      "UPDATE users SET google_sub = COALESCE(?, google_sub), name = COALESCE(?, name), is_admin = ? WHERE id = ?"
+    ).run(sub ?? null, name ?? null, isAdmin ? 1 : 0, user.id);
   }
   user = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
 
@@ -561,7 +610,7 @@ app.post("/api/auth/google", async (req, res) => {
     path: "/",
   });
   res.json({ id: user.id, email: user.email, name: user.name, isAdmin: !!user.is_admin });
-});
+}
 
 app.post("/api/auth/logout", (req, res) => {
   res.clearCookie(SESSION_COOKIE, { path: "/" });
