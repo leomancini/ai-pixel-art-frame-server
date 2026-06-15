@@ -6,3 +6,11 @@ import App from "./App";
 const root = ReactDOM.createRoot(document.getElementById("root"));
 root.render(<App />);
 
+// Cache the app shell so future launches paint instantly (no grey/white flash
+// as the iOS splash fades while the page loads).
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch(() => {});
+  });
+}
+
