@@ -465,10 +465,6 @@ function Main({ user }) {
           )}
           {(!user.isAdmin || adminReady) && (
             <SettingsList>
-              <SettingRow>
-                <RowLabel>Account</RowLabel>
-                <RowValue>{user.email}</RowValue>
-              </SettingRow>
               {/* Per-frame name + API key fields are for non-admin users only;
                   admins manage frames in the panel above. */}
               {!user.isAdmin &&
@@ -488,6 +484,11 @@ function Main({ user }) {
                     </SettingRow>
                   </React.Fragment>
                 ))}
+              {/* Account sits just above Log out. */}
+              <SettingRow>
+                <RowLabel>Account</RowLabel>
+                <RowValue>{user.email}</RowValue>
+              </SettingRow>
               <LogoutRow>
                 <LogoutButton onClick={logout}>Log out</LogoutButton>
               </LogoutRow>
