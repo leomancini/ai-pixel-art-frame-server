@@ -76,7 +76,7 @@ const HeaderArrow = styled.span`
   display: flex;
   align-items: center;
   pointer-events: none;
-  color: #bbb;
+  color: #888;
   font-size: 20px;
   text-transform: none;
   transform: translateY(-3px);
@@ -269,7 +269,10 @@ function Main({ user }) {
             <FrameSelectField>
               <Select
                 value={selectedId ?? ""}
-                onChange={(e) => setSelectedId(Number(e.target.value))}
+                onChange={(e) => {
+                  setSelectedId(Number(e.target.value));
+                  e.target.blur();
+                }}
               >
                 {frames.map((f) => (
                   <option key={f.id} value={f.id}>

@@ -76,7 +76,7 @@ const SelectArrow = styled.span`
   display: flex;
   align-items: center;
   pointer-events: none;
-  color: #bbb;
+  color: #888;
   font-size: 20px;
   text-transform: none;
   transform: translateY(-3px);
@@ -237,9 +237,10 @@ export default function AdminPanel({ onFramesChanged, onReady }) {
               <SelectField>
                 <Select
                   value={u.frameIds[0] ?? ""}
-                  onChange={(e) =>
-                    setAccess(u, e.target.value ? Number(e.target.value) : null)
-                  }
+                  onChange={(e) => {
+                    setAccess(u, e.target.value ? Number(e.target.value) : null);
+                    e.target.blur();
+                  }}
                 >
                   <option value="">No frame</option>
                   {frames.map((f) => (
