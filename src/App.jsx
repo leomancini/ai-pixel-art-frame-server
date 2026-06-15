@@ -469,15 +469,16 @@ function Main({ user }) {
                 <RowLabel>Account</RowLabel>
                 <RowValue>{user.email}</RowValue>
               </SettingRow>
-              {frames?.length > 0 &&
+              {/* Per-frame name + API key fields are for non-admin users only;
+                  admins manage frames in the panel above. */}
+              {!user.isAdmin &&
+                frames?.length > 0 &&
                 frames.map((f) => (
                   <React.Fragment key={f.id}>
-                    {!user.isAdmin && (
-                      <SettingRow>
-                        <RowLabel>Frame name</RowLabel>
-                        <FrameName frame={f} onSaved={loadFrames} />
-                      </SettingRow>
-                    )}
+                    <SettingRow>
+                      <RowLabel>Frame name</RowLabel>
+                      <FrameName frame={f} onSaved={loadFrames} />
+                    </SettingRow>
                     <SettingRow>
                       <RowLabel>
                         Anthropic API key
