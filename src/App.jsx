@@ -383,6 +383,11 @@ function Main({ user }) {
 
   const selected = frames?.find((f) => f.id === selectedId) ?? null;
 
+  // Reflect the current frame in the browser tab title.
+  useEffect(() => {
+    document.title = (selected?.name || "AI Pixel Art Frame").toUpperCase();
+  }, [selected?.name]);
+
   // Admin switches frames with a header dropdown (instead of tabs).
   const showFrameDropdown =
     view !== "settings" && user.isAdmin && frames && frames.length > 0;
