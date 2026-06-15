@@ -71,6 +71,7 @@ export const Input = styled.input`
   border-radius: 12px;
   outline: none;
   resize: none;
+  text-align: left;
   @media (hover: hover) {
     &:not(:disabled):hover {
       border-color: #888;
