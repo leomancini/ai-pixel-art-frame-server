@@ -585,7 +585,7 @@ app.get("/manifest.json", (req, res) => {
              WHERE a.user_id = ? ORDER BY f.name`
           )
           .all(u.uid);
-    if (frames.length === 1) name = frames[0].name;
+    if (frames.length === 1) name = frames[0].name.toUpperCase();
   }
   res.set("Cache-Control", "no-store");
   res.set("Content-Type", "application/manifest+json");
