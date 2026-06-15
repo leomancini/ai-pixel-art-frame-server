@@ -13,6 +13,8 @@ const Settings = styled.div`
   gap: 56px;
   width: min(1100px, 92vw);
   text-align: left;
+  /* Admin settings: a little more breathing room below the header. */
+  margin-top: ${(p) => (p.$wide ? "24px" : "0")};
 `;
 
 const SettingsList = styled.div`
@@ -41,6 +43,12 @@ const RowValue = styled.div`
   color: #eee;
   text-align: left;
   overflow-wrap: anywhere;
+`;
+
+// Extra space above Log out so it reads as its own section — combined with the
+// row paddings (16px + 16px) this makes a 56px gap, matching the section gap.
+const LogoutRow = styled(SettingRow)`
+  margin-top: 24px;
 `;
 
 const LogoutButton = styled(DangerButton)`
@@ -332,9 +340,9 @@ function Main({ user }) {
                       <FrameName frame={f} onSaved={loadFrames} />
                     </SettingRow>
                   ))}
-                <SettingRow>
+                <LogoutRow>
                   <LogoutButton onClick={logout}>Log out</LogoutButton>
-                </SettingRow>
+                </LogoutRow>
               </SettingsList>
             )}
           </Settings>
@@ -346,7 +354,12 @@ function Main({ user }) {
         </Muted>
       ) : (
         selected && (
-          <FrameControl key={selected.id} frame={selected} refresh={loadFrames} />
+          <FrameControl
+            key={selected.id}
+            frame={selected}
+            refresh={loadFrames}
+            topGap={showFrameDropdown}
+          />
         )
       )}
     </Page>
