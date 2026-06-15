@@ -225,10 +225,44 @@ function orbitFrames(frameCount = 64) {
   return frames;
 }
 
+function spiralFrames(frameCount = 60) {
+  // Two rainbow arms spiralling out from the centre, rotating once per loop.
+  const cx = 15.5;
+  const cy = 15.5;
+  const frames = [];
+  for (let i = 0; i < frameCount; i++) {
+    const ph = (i / frameCount) * 2 * Math.PI;
+    const rgb = [];
+    for (let y = 0; y < FRAME_HEIGHT; y++) {
+      for (let x = 0; x < FRAME_WIDTH; x++) {
+        const dx = x - cx;
+        const dy = y - cy;
+        const d = Math.hypot(dx, dy);
+        const a = Math.atan2(dy, dx);
+        // 2 arms that twist with radius; arms rotate twice per loop (seamless).
+        const arm = Math.sin(a * 2 + d * 0.6 - ph * 2);
+        const inten = Math.max(0, arm) ** 2;
+        const hue = a + ph; // hue rotates once per loop (seamless)
+        let r = (Math.sin(hue) + 1) * 127.5 * inten;
+        let g = (Math.sin(hue + 2.1) + 1) * 127.5 * inten;
+        let b = (Math.sin(hue + 4.2) + 1) * 127.5 * inten;
+        // Snap dim values to black — the matrix can't render faint colours.
+        r = r < 45 ? 0 : r;
+        g = g < 45 ? 0 : g;
+        b = b < 45 ? 0 : b;
+        rgb.push(Math.floor(r), Math.floor(g), Math.floor(b));
+      }
+    }
+    frames.push(rgb);
+  }
+  return frames;
+}
+
 const presets = {
   plasma: { name: "Plasma", delayMs: 60, generate: plasmaFrames },
   starfield: { name: "Starfield", delayMs: 80, generate: starfieldFrames },
   orbit: { name: "Orbit", delayMs: 40, generate: orbitFrames },
+  spiral: { name: "Spiral", delayMs: 50, generate: spiralFrames },
 };
 for (const preset of Object.values(presets)) {
   preset.frames = preset.generate(); // pre-render at startup
