@@ -245,22 +245,28 @@ export default function FrameControl({ frame, refresh }) {
     setError(false);
     setStatus("");
     setPrompt(""); // clear + disable the field immediately
+    // Hold the front cell with a pending placeholder so the grid never reflows.
+    setGallery((g) => [{ pending: true }, ...g]);
     try {
       const data = await api.post(`/api/frames/${frame.id}/generate`, {
         prompt: text,
       });
       refresh(); // server activated the new animation (updates selection)
-      // Fade the loading card out, leave the spot empty, then fade the new card in.
-      setPhase("out");
+      setPhase("out"); // fade the placeholder out (in place — no reflow)
       setTimeout(() => {
-        setPhase("idle"); // loading card removed — spot empty
-        setTimeout(() => {
-          setFreshId(data.id);
-          loadLists(); // new card appears and fades in
-          setTimeout(() => setFreshId(null), 600);
-        }, 140);
+        // Swap the placeholder for the real card in the SAME cell; it fades in.
+        setFreshId(data.id);
+        setGallery((g) =>
+          g.map((it) =>
+            it.pending ? { id: data.id, name: data.name, prompt: text } : it
+          )
+        );
+        setPhase("idle");
+        setTimeout(() => setFreshId(null), 600);
+        loadLists(); // re-sync with the server
       }, 350);
     } catch (err) {
+      setGallery((g) => g.filter((it) => !it.pending));
       setPhase("idle");
       setError(true);
       setStatus(err.message);
@@ -307,23 +313,24 @@ export default function FrameControl({ frame, refresh }) {
       {status && <Status $error={error}>{status}</Status>}
 
       <Row>
-        {(phase === "loading" || phase === "out") && (
-          <LoadingCard as="div" $out={phase === "out"}>
-            <AnimPreview shimmer />
-            <Name>{verb}</Name>
-          </LoadingCard>
+        {gallery.map((g) =>
+          g.pending ? (
+            <LoadingCard as="div" key="pending" $out={phase === "out"}>
+              <AnimPreview shimmer />
+              <Name>{verb}</Name>
+            </LoadingCard>
+          ) : (
+            <GalleryCard
+              key={`g-${g.id}`}
+              src={`/api/frames/${frame.id}/gallery/${g.id}`}
+              name={g.name}
+              active={isActiveGallery(g.id)}
+              fresh={g.id === freshId}
+              onSelect={() => activateGallery(g.id)}
+              onDelete={() => remove(g.id, g.name)}
+            />
+          )
         )}
-        {gallery.map((g) => (
-          <GalleryCard
-            key={`g-${g.id}`}
-            src={`/api/frames/${frame.id}/gallery/${g.id}`}
-            name={g.name}
-            active={isActiveGallery(g.id)}
-            fresh={g.id === freshId}
-            onSelect={() => activateGallery(g.id)}
-            onDelete={() => remove(g.id, g.name)}
-          />
-        ))}
         {presets.map((p) => (
           <Card
             type="button"
