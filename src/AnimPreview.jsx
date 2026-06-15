@@ -86,9 +86,12 @@ export default function AnimPreview({ src, shimmer }) {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const resize = () => {
+      // Hidden (e.g. the frame view while in settings): keep the current backing
+      // store so the drawn frame survives — no blank/redraw flash on re-show.
+      if (!canvas.clientWidth || !canvas.clientHeight) return;
       const dpr = window.devicePixelRatio || 1;
-      const w = Math.max(1, Math.round((canvas.clientWidth || 160) * dpr));
-      const h = Math.max(1, Math.round((canvas.clientHeight || 160) * dpr));
+      const w = Math.max(1, Math.round(canvas.clientWidth * dpr));
+      const h = Math.max(1, Math.round(canvas.clientHeight * dpr));
       if (canvas.width !== w || canvas.height !== h) {
         canvas.width = w;
         canvas.height = h;

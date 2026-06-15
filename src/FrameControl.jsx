@@ -50,6 +50,13 @@ const PromptForm = styled.form`
   }
 `;
 
+// The prompt is free text. Don't force uppercase on it — text-transform:uppercase
+// disables iOS autocorrect/predictive text. (The placeholder stays uppercased via
+// the global ::placeholder rule.)
+const PromptInput = styled(Input)`
+  text-transform: none;
+`;
+
 const Status = styled.div`
   font-size: 20px;
   color: ${(p) => (p.$error ? "#bbb" : "#777")};
@@ -106,8 +113,8 @@ const Card = styled.button`
 `;
 
 const pulse = keyframes`
-  0%, 100% { opacity: 0.45; }
-  50% { opacity: 1; }
+  0%, 100% { opacity: 0.2; }
+  50% { opacity: 0.5; }
 `;
 
 const LoadingCard = styled(Card)`
@@ -303,7 +310,7 @@ export default function FrameControl({ frame, refresh }) {
   return (
     <Content>
       <PromptForm onSubmit={generate}>
-        <Input
+        <PromptInput
           {...(isMobile ? { as: "textarea", rows: 3 } : {})}
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}

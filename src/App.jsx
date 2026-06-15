@@ -17,6 +17,13 @@ const Settings = styled.div`
   margin-top: ${(p) => (p.$wide ? "24px" : "0")};
 `;
 
+// Hosts the frame view and keeps it mounted while in settings (hidden, not
+// unmounted) so the gallery grids don't re-fetch/redraw — no flash on the way
+// back. display: contents so it doesn't add a box to the page's flex layout.
+const FrameHost = styled.div`
+  display: ${(p) => (p.$hidden ? "none" : "contents")};
+`;
+
 const SettingsList = styled.div`
   display: flex;
   flex-direction: column;
@@ -448,55 +455,59 @@ function Main({ user }) {
         </IconButton>
       </Header>
 
-      {view === "settings" ? (
-        frames === null ? null : (
-          <Settings $wide={user.isAdmin}>
-            {user.isAdmin && (
-              <AdminPanel
-                onReady={() => setAdminReady(true)}
-                onFramesChanged={loadFrames}
-              />
-            )}
-            {(!user.isAdmin || adminReady) && (
-              <SettingsList>
-                <SettingRow>
-                  <RowLabel>Account</RowLabel>
-                  <RowValue>{user.email}</RowValue>
-                </SettingRow>
-                {frames?.length > 0 &&
-                  frames.map((f) => (
-                    <React.Fragment key={f.id}>
-                      {!user.isAdmin && (
-                        <SettingRow>
-                          <RowLabel>Frame name</RowLabel>
-                          <FrameName frame={f} onSaved={loadFrames} />
-                        </SettingRow>
-                      )}
+      {view === "settings" && frames !== null && (
+        <Settings $wide={user.isAdmin}>
+          {user.isAdmin && (
+            <AdminPanel
+              onReady={() => setAdminReady(true)}
+              onFramesChanged={loadFrames}
+            />
+          )}
+          {(!user.isAdmin || adminReady) && (
+            <SettingsList>
+              <SettingRow>
+                <RowLabel>Account</RowLabel>
+                <RowValue>{user.email}</RowValue>
+              </SettingRow>
+              {frames?.length > 0 &&
+                frames.map((f) => (
+                  <React.Fragment key={f.id}>
+                    {!user.isAdmin && (
                       <SettingRow>
-                        <RowLabel>
-                          Anthropic API key
-                          {frames.length > 1 ? ` · ${f.name}` : ""}
-                        </RowLabel>
-                        <ApiKeyField frame={f} onSaved={loadFrames} />
+                        <RowLabel>Frame name</RowLabel>
+                        <FrameName frame={f} onSaved={loadFrames} />
                       </SettingRow>
-                    </React.Fragment>
-                  ))}
-                <LogoutRow>
-                  <LogoutButton onClick={logout}>Log out</LogoutButton>
-                </LogoutRow>
-              </SettingsList>
-            )}
-          </Settings>
-        )
-      ) : frames === null ? null : frames.length === 0 ? (
+                    )}
+                    <SettingRow>
+                      <RowLabel>
+                        Anthropic API key
+                        {frames.length > 1 ? ` · ${f.name}` : ""}
+                      </RowLabel>
+                      <ApiKeyField frame={f} onSaved={loadFrames} />
+                    </SettingRow>
+                  </React.Fragment>
+                ))}
+              <LogoutRow>
+                <LogoutButton onClick={logout}>Log out</LogoutButton>
+              </LogoutRow>
+            </SettingsList>
+          )}
+        </Settings>
+      )}
+
+      {view !== "settings" && frames !== null && frames.length === 0 && (
         <Muted>
           No frames assigned to you yet.
           {user.isAdmin ? " Add one in Settings (gear, top right)." : " Ask the admin for access."}
         </Muted>
-      ) : (
-        selected && (
+      )}
+
+      {/* Kept mounted across settings toggles (hidden, not unmounted) so the
+          gallery grids stay stable — no reload/flash returning to the frame. */}
+      {frames && frames.length > 0 && selected && (
+        <FrameHost $hidden={view === "settings"}>
           <FrameControl key={selected.id} frame={selected} refresh={loadFrames} />
-        )
+        </FrameHost>
       )}
     </Page>
   );
