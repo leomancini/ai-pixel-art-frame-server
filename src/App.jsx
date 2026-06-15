@@ -250,11 +250,14 @@ const FieldError = styled.div`
   text-align: left;
 `;
 
+const DeleteKeyButton = styled(DangerButton)`
+  flex: 1;
+`;
+
 // Lets a user set their own Anthropic API key for a frame they can access,
-// overriding the system key for that frame's generations. The key is write-only:
-// the server never returns it, so the field stays empty and the placeholder
-// notes when one is already saved. Paste a key to save (debounced); Remove
-// clears it and reverts the frame to the system key.
+// overriding the system key for that frame's generations. The stored key is
+// write-only (never returned), so when one is set we replace the field with a
+// full-width "Delete API key" button; otherwise, paste a key to save (debounced).
 function ApiKeyField({ frame, onSaved }) {
   const [value, setValue] = useState("");
   const [error, setError] = useState("");
@@ -265,7 +268,7 @@ function ApiKeyField({ frame, onSaved }) {
       return;
     }
     const key = value.trim();
-    if (!key) return; // empty: nothing to save — use Remove to clear an existing key
+    if (!key) return;
     const t = setTimeout(() => {
       setError("");
       api
@@ -287,29 +290,28 @@ function ApiKeyField({ frame, onSaved }) {
   };
   return (
     <div style={{ width: "100%" }}>
-      <ApiKeyForm onSubmit={(e) => e.preventDefault()}>
-        <ApiKeyInput
-          type="password"
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          placeholder={
-            frame.hasApiKey
-              ? `Using your key …${frame.apiKeyHint} — paste a new one to replace`
-              : "SK-ANT..."
-          }
-          spellCheck={false}
-          autoComplete="off"
-          autoCorrect="off"
-          autoCapitalize="off"
-          data-1p-ignore="true"
-          data-lpignore="true"
-        />
-        {frame.hasApiKey && (
-          <DangerButton type="button" onClick={remove}>
-            Remove
-          </DangerButton>
-        )}
-      </ApiKeyForm>
+      {frame.hasApiKey ? (
+        <ApiKeyForm as="div">
+          <DeleteKeyButton type="button" onClick={remove}>
+            Delete API key
+          </DeleteKeyButton>
+        </ApiKeyForm>
+      ) : (
+        <ApiKeyForm onSubmit={(e) => e.preventDefault()}>
+          <ApiKeyInput
+            type="password"
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            placeholder="SK-ANT..."
+            spellCheck={false}
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            data-1p-ignore="true"
+            data-lpignore="true"
+          />
+        </ApiKeyForm>
+      )}
       {error && <FieldError>{error}</FieldError>}
     </div>
   );
