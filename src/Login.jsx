@@ -3,17 +3,6 @@ import styled from "styled-components";
 import { api } from "./api";
 import { Centered, Title } from "./ui";
 
-// Google's renderButton draws an un-styleable iframe. We render it hidden and
-// forward clicks from our own pixel-font button so the real ID-token flow runs.
-const HiddenGoogle = styled.div`
-  position: absolute;
-  opacity: 0;
-  pointer-events: none;
-  width: 0;
-  height: 0;
-  overflow: hidden;
-`;
-
 // Breaks "AI Pixel / Art Frame" onto two lines on mobile only.
 const MobileBreak = styled.br`
   display: none;
@@ -22,35 +11,14 @@ const MobileBreak = styled.br`
   }
 `;
 
-const SignInButton = styled.button`
-  font-family: var(--pixel-font);
-  font-size: 20px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  box-sizing: border-box;
-  height: 48px;
-  display: inline-flex;
-  align-items: center;
+// Holds the real Google Identity Services button. It must be genuinely visible
+// and clicked by the user — a programmatic click is rejected by GIS, and the
+// One Tap / FedCM path fails when FedCM is disabled, so we render the actual
+// button and let the user click it (popup flow, no FedCM dependency).
+const GoogleHost = styled.div`
+  min-height: 44px;
+  display: flex;
   justify-content: center;
-  width: min(560px, 92vw);
-  @media (min-width: 641px) {
-    width: auto;
-  }
-  padding: 0 20px;
-  color: #111;
-  background: #fff;
-  border: 2px solid #fff;
-  border-radius: 12px;
-  cursor: pointer;
-  white-space: nowrap;
-  &:not(:disabled):active {
-    background: #ccc;
-    border-color: #ccc;
-  }
-  &:disabled {
-    opacity: 0.4;
-    cursor: default;
-  }
 `;
 
 const Error = styled.div`
@@ -60,44 +28,12 @@ const Error = styled.div`
   text-align: center;
 `;
 
-// Renders the Google Identity Services button, exchanges the returned ID
-// token for a session, then calls onSignedIn().
+// Renders the Google sign-in button, exchanges the returned ID token for a
+// session, then calls onSignedIn().
 export default function Login({ onSignedIn }) {
   const hostRef = useRef(null);
   const [error, setError] = useState("");
-  const [ready, setReady] = useState(false);
   const [signingIn, setSigningIn] = useState(false);
-  const authStartedRef = useRef(false); // true once Google returns a credential
-
-  // Click the real (hidden) Google button to launch the popup. We avoid the
-  // One Tap / prompt() path because it relies on FedCM, which fails when the
-  // user has it disabled. Show the loading screen immediately so the start
-  // page never reappears during sign-in.
-  const signIn = () => {
-    authStartedRef.current = false;
-    setError("");
-    const btn = hostRef.current?.querySelector(
-      'div[role="button"], [role="button"], button'
-    );
-    if (!btn) {
-      setError("Sign-in isn't ready yet — please try again.");
-      return;
-    }
-    btn.click();
-    setSigningIn(true);
-  };
-
-  // If the user dismisses the Google popup without authenticating, focus
-  // returns here with no auth started — restore the start screen.
-  useEffect(() => {
-    const onFocus = () => {
-      window.setTimeout(() => {
-        if (!authStartedRef.current) setSigningIn(false);
-      }, 500);
-    };
-    window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
-  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -110,7 +46,7 @@ export default function Login({ onSignedIn }) {
           return;
         }
         const init = () => {
-          if (cancelled) return;
+          if (cancelled || !hostRef.current) return;
           if (!window.google?.accounts?.id) {
             setTimeout(init, 100); // GIS script still loading
             return;
@@ -118,14 +54,13 @@ export default function Login({ onSignedIn }) {
           window.google.accounts.id.initialize({
             client_id: googleClientId,
             callback: async (resp) => {
-              // Auth started — keep the loading screen up through the exchange.
-              authStartedRef.current = true;
-              setSigningIn(true);
+              setSigningIn(true); // swap to loading while we exchange the token
               try {
-                await api.post("/api/auth/google", { credential: resp.credential });
+                await api.post("/api/auth/google", {
+                  credential: resp.credential,
+                });
                 onSignedIn();
               } catch (e) {
-                authStartedRef.current = false;
                 setSigningIn(false);
                 setError(e.message);
               }
@@ -134,10 +69,10 @@ export default function Login({ onSignedIn }) {
           window.google.accounts.id.renderButton(hostRef.current, {
             theme: "filled_black",
             size: "large",
-            text: "signin_with",
+            text: "continue_with",
             shape: "pill",
+            width: 280,
           });
-          setReady(true);
         };
         init();
       })
@@ -158,10 +93,7 @@ export default function Login({ onSignedIn }) {
       <Title>
         AI Pixel <MobileBreak />Art Frame
       </Title>
-      <SignInButton onClick={signIn} disabled={!ready}>
-        Start
-      </SignInButton>
-      <HiddenGoogle ref={hostRef} />
+      <GoogleHost ref={hostRef} />
       {error && <Error>{error}</Error>}
     </Centered>
   );
