@@ -12,7 +12,11 @@
          what prevents the intermittent grey launch flash. -->
     <meta name="color-scheme" content="dark" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <!-- black-translucent lets the (black) web view cover the whole screen edge
+         to edge, instead of iOS reserving an opaque status-bar region it paints
+         itself during launch (that reserved region was the one grey frame). -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <!-- Served dynamically by the server (name = the user's frame). A valid,
          named manifest is required for iOS to honor background_color, which

@@ -14,13 +14,20 @@ export const Page = styled.div`
   flex-direction: column;
   align-items: center;
   gap: 32px;
+  /* Pad for the status bar / home indicator since the status bar is now
+     translucent and the web view spans the full screen. env() is 0 in a
+     desktop browser, so the base 16px / 48px is unchanged there. */
   padding: 16px;
+  padding-top: calc(16px + env(safe-area-inset-top));
+  padding-right: calc(16px + env(safe-area-inset-right));
+  padding-bottom: calc(16px + env(safe-area-inset-bottom));
+  padding-left: calc(16px + env(safe-area-inset-left));
   background: #000;
   color: #eee;
   font-family: var(--pixel-font);
   @media (min-width: 641px) {
-    padding-top: 48px;
-    padding-bottom: 48px;
+    padding-top: calc(48px + env(safe-area-inset-top));
+    padding-bottom: calc(48px + env(safe-area-inset-bottom));
   }
 `;
 
@@ -32,6 +39,9 @@ export const Centered = styled.div`
   align-items: center;
   justify-content: center;
   gap: 40px;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right)
+    env(safe-area-inset-bottom) env(safe-area-inset-left);
+  box-sizing: border-box;
   background: #000;
   color: #eee;
   font-family: var(--pixel-font);
