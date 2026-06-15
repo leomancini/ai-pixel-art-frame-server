@@ -18,11 +18,10 @@
          itself during launch (that reserved region was the one grey frame). -->
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <!-- Served dynamically by the server (name = the user's frame). A valid,
-         named manifest is required for iOS to honor background_color, which
-         paints the launch backdrop black and prevents the intermittent grey
-         flash. use-credentials so the session cookie reaches the server. -->
-    <link rel="manifest" href="/manifest.json" crossorigin="use-credentials" />
+    <!-- Plain static manifest (like the working ibackpack app). iOS reads its
+         background_color (#000) to paint the launch screen black; a credentialed
+         or dynamic manifest can be ignored, falling back to the grey default. -->
+    <link rel="manifest" href="/manifest.json" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <title>AI Pixel Art Frame</title>
     <!-- Inline so the page is black before the JS bundle/CSS loads (no white flash on refresh). -->
