@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import styled from "styled-components";
 import { api, setUnauthorizedHandler } from "./api";
-import { Page, Centered, Muted, Input, Header, DangerButton, GhostButton } from "./ui";
+import { Page, Centered, Muted, Input, Header, DangerButton } from "./ui";
 import Login from "./Login";
 import FrameControl from "./FrameControl";
 import AdminPanel from "./AdminPanel";
@@ -305,9 +305,9 @@ function ApiKeyField({ frame, onSaved }) {
           data-lpignore="true"
         />
         {frame.hasApiKey && (
-          <GhostButton type="button" onClick={remove}>
+          <DangerButton type="button" onClick={remove}>
             Remove
-          </GhostButton>
+          </DangerButton>
         )}
       </ApiKeyForm>
       {error && <FieldError>{error}</FieldError>}
