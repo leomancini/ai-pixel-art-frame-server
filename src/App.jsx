@@ -244,8 +244,9 @@ const ApiKeyInput = styled(Input)`
 `;
 
 const FieldError = styled.div`
+  margin-top: 14px;
   font-size: 16px;
-  color: #ff6b6b;
+  color: #ff3030;
   text-align: left;
 `;
 

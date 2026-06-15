@@ -3,7 +3,7 @@
 // gap where, as the iOS splash fades, the still-loading page showed a grey/white
 // flash. App data is always fetched fresh (API/device endpoints are network-only).
 
-const CACHE = "apf-shell-v9";
+const CACHE = "apf-shell-v10";
 // Stable, unhashed shell assets worth precaching on install.
 const PRECACHE = [
   "/",
