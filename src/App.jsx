@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import styled from "styled-components";
 import { api, setUnauthorizedHandler } from "./api";
-import { Page, Centered, Muted, Input, Header, DangerButton } from "./ui";
+import { Page, Centered, Muted, Input, Header, DangerButton, GhostButton } from "./ui";
 import Login from "./Login";
 import FrameControl from "./FrameControl";
 import AdminPanel from "./AdminPanel";
@@ -177,10 +177,10 @@ const GearIcon = () => (
 const NickForm = styled.form`
   display: flex;
   width: 100%;
-  /* Desktop: exactly one homepage grid column (4 cols, 24px gaps).
+  /* Desktop: two homepage grid columns (2 col widths + the 24px gap between).
      min() of flat calc()s — nesting min() inside a calc division breaks iOS. */
   @media (min-width: 641px) {
-    width: min(257px, calc((92vw - 72px) / 4));
+    width: min(538px, calc((92vw - 72px) / 2 + 24px));
   }
 `;
 
@@ -217,6 +217,93 @@ function FrameName({ frame, onSaved }) {
         data-lpignore="true"
       />
     </NickForm>
+  );
+}
+
+const ApiKeyForm = styled.form`
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  width: 100%;
+  /* Two homepage grid columns — keys are long and there's a Remove button. */
+  @media (min-width: 641px) {
+    width: min(538px, calc((92vw - 72px) / 2 + 24px));
+  }
+`;
+
+const ApiKeyInput = styled(Input)`
+  flex: 1;
+  min-width: 0;
+`;
+
+const FieldError = styled.div`
+  font-size: 16px;
+  color: #ff6b6b;
+  text-align: left;
+`;
+
+// Lets a user set their own Anthropic API key for a frame they can access,
+// overriding the system key for that frame's generations. The key is write-only:
+// the server never returns it, so the field stays empty and the placeholder
+// notes when one is already saved. Paste a key to save (debounced); Remove
+// clears it and reverts the frame to the system key.
+function ApiKeyField({ frame, onSaved }) {
+  const [value, setValue] = useState("");
+  const [error, setError] = useState("");
+  const firstRef = useRef(true);
+  useEffect(() => {
+    if (firstRef.current) {
+      firstRef.current = false;
+      return;
+    }
+    const key = value.trim();
+    if (!key) return; // empty: nothing to save — use Remove to clear an existing key
+    const t = setTimeout(() => {
+      setError("");
+      api
+        .patch(`/api/frames/${frame.id}/api-key`, { apiKey: key })
+        .then(() => {
+          setValue("");
+          onSaved?.();
+        })
+        .catch((e) => setError(e.message));
+    }, 600);
+    return () => clearTimeout(t);
+  }, [value, frame.id, onSaved]);
+  const remove = () => {
+    setError("");
+    api
+      .del(`/api/frames/${frame.id}/api-key`)
+      .then(() => onSaved?.())
+      .catch((e) => setError(e.message));
+  };
+  return (
+    <div style={{ width: "100%" }}>
+      <ApiKeyForm onSubmit={(e) => e.preventDefault()}>
+        <ApiKeyInput
+          type="password"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder={
+            frame.hasApiKey
+              ? `Using your key …${frame.apiKeyHint} — paste a new one to replace`
+              : "SK-ANT..."
+          }
+          spellCheck={false}
+          autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="off"
+          data-1p-ignore="true"
+          data-lpignore="true"
+        />
+        {frame.hasApiKey && (
+          <GhostButton type="button" onClick={remove}>
+            Remove
+          </GhostButton>
+        )}
+      </ApiKeyForm>
+      {error && <FieldError>{error}</FieldError>}
+    </div>
   );
 }
 
@@ -371,13 +458,23 @@ function Main({ user }) {
                   <RowLabel>Account</RowLabel>
                   <RowValue>{user.email}</RowValue>
                 </SettingRow>
-                {!user.isAdmin &&
-                  frames?.length > 0 &&
+                {frames?.length > 0 &&
                   frames.map((f) => (
-                    <SettingRow key={f.id}>
-                      <RowLabel>Frame name</RowLabel>
-                      <FrameName frame={f} onSaved={loadFrames} />
-                    </SettingRow>
+                    <React.Fragment key={f.id}>
+                      {!user.isAdmin && (
+                        <SettingRow>
+                          <RowLabel>Frame name</RowLabel>
+                          <FrameName frame={f} onSaved={loadFrames} />
+                        </SettingRow>
+                      )}
+                      <SettingRow>
+                        <RowLabel>
+                          Anthropic API key
+                          {frames.length > 1 ? ` · ${f.name}` : ""}
+                        </RowLabel>
+                        <ApiKeyField frame={f} onSaved={loadFrames} />
+                      </SettingRow>
+                    </React.Fragment>
                   ))}
                 <LogoutRow>
                   <LogoutButton onClick={logout}>Log out</LogoutButton>

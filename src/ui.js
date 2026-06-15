@@ -122,7 +122,7 @@ export const Select = styled.select`
 export const Button = styled.button`
   box-sizing: border-box;
   height: 48px;
-  min-width: 128px;
+  min-width: min(257px, calc((92vw - 72px) / 4));
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -147,7 +147,7 @@ export const Button = styled.button`
 export const GhostButton = styled.button`
   box-sizing: border-box;
   height: 48px;
-  min-width: 128px;
+  min-width: min(257px, calc((92vw - 72px) / 4));
   display: inline-flex;
   align-items: center;
   justify-content: center;

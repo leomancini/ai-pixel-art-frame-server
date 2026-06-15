@@ -99,6 +99,16 @@ if (!hasDeviceKey) {
   db.exec("ALTER TABLE frames ADD COLUMN device_key TEXT");
 }
 
+// Optional per-frame Anthropic API key. When set, generation for that frame
+// uses this key instead of the system one (the server's ANTHROPIC_API_KEY env).
+const hasFrameApiKey = db
+  .prepare("PRAGMA table_info(frames)")
+  .all()
+  .some((c) => c.name === "anthropic_api_key");
+if (!hasFrameApiKey) {
+  db.exec("ALTER TABLE frames ADD COLUMN anthropic_api_key TEXT");
+}
+
 const sha256 = (s) => crypto.createHash("sha256").update(s).digest("hex");
 
 // Seed the admin user so they can sign in even before being pre-provisioned.
@@ -451,11 +461,13 @@ function rasterize(code, frameCount) {
 }
 
 // Ask Claude for an animation and rasterize it; one retry with the error
-// fed back if the generated code fails to run.
-async function generateAnimation(prompt) {
+// fed back if the generated code fails to run. `apiKey`, when provided, is a
+// frame's own Anthropic key and overrides the system one for this request only.
+async function generateAnimation(prompt, apiKey) {
+  const client = apiKey ? new Anthropic({ apiKey }) : anthropic;
   const messages = [{ role: "user", content: prompt }];
   for (let attempt = 0; attempt < 2; attempt++) {
-    const stream = anthropic.messages.stream({
+    const stream = client.messages.stream({
       model: "claude-opus-4-8",
       max_tokens: 32000,
       thinking: { type: "adaptive" },
@@ -704,6 +716,9 @@ app.get("/api/frames", requireAuth, (req, res) => {
       id: f.id,
       slug: f.slug,
       name: f.name,
+      // Never expose the stored key itself — just whether one is set and a hint.
+      hasApiKey: !!f.anthropic_api_key,
+      apiKeyHint: f.anthropic_api_key ? f.anthropic_api_key.slice(-4) : null,
       active: {
         kind: f.active_kind,
         presetKey: f.active_preset_key,
@@ -720,6 +735,26 @@ app.patch("/api/frames/:id/name", requireFrameAccess, (req, res) => {
   if (!name) return res.status(400).json({ error: "name is required" });
   db.prepare("UPDATE frames SET name = ? WHERE id = ?").run(name, req.frame.id);
   res.json({ ok: true, name });
+});
+
+// A user can set their own Anthropic API key for a frame they can access; it
+// overrides the system key for that frame's generations only. The key is write-
+// only over the API — we return whether one is set and a 4-char hint, never the
+// stored value itself.
+app.patch("/api/frames/:id/api-key", requireFrameAccess, (req, res) => {
+  const key = (req.body?.apiKey ?? "").trim();
+  if (!key) return res.status(400).json({ error: "apiKey is required" });
+  if (!key.startsWith("sk-ant-")) {
+    return res.status(400).json({ error: "that doesn't look like an Anthropic API key (sk-ant-...)" });
+  }
+  if (key.length > 200) return res.status(400).json({ error: "apiKey too long" });
+  db.prepare("UPDATE frames SET anthropic_api_key = ? WHERE id = ?").run(key, req.frame.id);
+  res.json({ ok: true, hasApiKey: true, apiKeyHint: key.slice(-4) });
+});
+
+app.delete("/api/frames/:id/api-key", requireFrameAccess, (req, res) => {
+  db.prepare("UPDATE frames SET anthropic_api_key = NULL WHERE id = ?").run(req.frame.id);
+  res.json({ ok: true, hasApiKey: false });
 });
 
 // One frame's gallery (newest first; no frame data — fetch per-item for previews)
@@ -761,7 +796,7 @@ app.post("/api/frames/:id/generate", requireFrameAccess, async (req, res) => {
     return res.status(400).json({ error: "prompt too long (max 500 chars)" });
   }
   try {
-    const anim = await generateAnimation(prompt);
+    const anim = await generateAnimation(prompt, req.frame.anthropic_api_key || undefined);
     const blob = Buffer.from(anim.frames.flat());
     const row = db
       .prepare(
