@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import styled from "styled-components";
 import { api, setUnauthorizedHandler } from "./api";
-import { Page, Centered, Muted, Input, Header, Select, DangerButton } from "./ui";
+import { Page, Centered, Muted, Input, Header, DangerButton } from "./ui";
 import Login from "./Login";
 import FrameControl from "./FrameControl";
 import AdminPanel from "./AdminPanel";
@@ -62,32 +62,63 @@ const Spacer = styled.div`
   flex: 1;
 `;
 
-// Frame picker in the header (admin) — same look as the people-list dropdown,
-// sized to one homepage grid column on desktop.
-const FrameSelectField = styled.div`
+// Frame switcher in the header (admin). Looks like the FrameLabel from the user
+// view — big text, no border or background — with the arrow inline right after
+// the name. Every name is stacked into one grid cell so the control is always
+// as wide as the longest frame name (it never resizes when switching). An
+// invisible native <select> is layered over the whole control, so a tap
+// anywhere opens the OS frame picker.
+const FrameSwitcher = styled.div`
   position: relative;
   display: inline-flex;
-  @media (min-width: 641px) {
-    width: min(257px, calc((92vw - 72px) / 4));
-    & > select {
-      flex: 1;
-      min-width: 0;
-    }
-  }
+  align-items: center;
+  cursor: pointer;
+`;
+
+const LabelStack = styled.span`
+  display: inline-grid;
+`;
+
+const StackRow = styled.span`
+  grid-area: 1 / 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  visibility: ${(p) => (p.$current ? "visible" : "hidden")};
+`;
+
+const FrameSwitcherLabel = styled.span`
+  font-size: 40px;
+  color: #eee;
+  white-space: nowrap;
 `;
 
 const HeaderArrow = styled.span`
-  position: absolute;
-  right: 16px;
-  top: 0;
-  bottom: 0;
-  display: flex;
-  align-items: center;
+  flex: none;
   pointer-events: none;
   color: #888;
-  font-size: 20px;
+  font-size: 24px;
   text-transform: none;
-  transform: translateY(-3px);
+  transform: translateY(-2px);
+`;
+
+const HiddenSelect = styled.select`
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  /* Drives the size of the native popup option text. */
+  font-size: 24px;
+  & option {
+    font-size: 24px;
+  }
 `;
 
 const FrameLabel = styled.div`
@@ -274,8 +305,17 @@ function Main({ user }) {
       <Header $wide={user.isAdmin}>
         {showFrameDropdown ? (
           <>
-            <FrameSelectField>
-              <Select
+            <FrameSwitcher>
+              <LabelStack>
+                {frames.map((f) => (
+                  <StackRow key={f.id} $current={f.id === selectedId}>
+                    <FrameSwitcherLabel>{f.name}</FrameSwitcherLabel>
+                    <HeaderArrow>v</HeaderArrow>
+                  </StackRow>
+                ))}
+              </LabelStack>
+              <HiddenSelect
+                aria-label="Switch frame"
                 value={selectedId ?? ""}
                 onChange={(e) => {
                   setSelectedId(Number(e.target.value));
@@ -287,9 +327,8 @@ function Main({ user }) {
                     {f.name}
                   </option>
                 ))}
-              </Select>
-              <HeaderArrow>v</HeaderArrow>
-            </FrameSelectField>
+              </HiddenSelect>
+            </FrameSwitcher>
             <Spacer />
           </>
         ) : (
@@ -354,12 +393,7 @@ function Main({ user }) {
         </Muted>
       ) : (
         selected && (
-          <FrameControl
-            key={selected.id}
-            frame={selected}
-            refresh={loadFrames}
-            topGap={showFrameDropdown}
-          />
+          <FrameControl key={selected.id} frame={selected} refresh={loadFrames} />
         )
       )}
     </Page>

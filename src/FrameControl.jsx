@@ -30,9 +30,6 @@ const Content = styled.div`
   flex-direction: column;
   align-items: center;
   gap: 40px;
-  /* Admin frames view: nudge content down 8px so the header dropdown→textfield
-     gap (Page gap 32px) matches the textfield→cards gap (40px). */
-  margin-top: ${(p) => (p.$topGap ? "8px" : "0")};
 `;
 
 const PromptForm = styled.form`
@@ -76,6 +73,13 @@ const Card = styled.button`
   width: 100%;
   gap: 12px;
   padding: 12px 12px 18px;
+  /* Desktop: extra padding shrinks the preview grid inside the card so the LED
+     dots read a bit smaller (cards stay at 4 columns), plus a little more space
+     between the grid and the title. */
+  @media (min-width: 641px) {
+    padding: 28px 28px 22px;
+    gap: 18px;
+  }
   background: #000;
   border: none;
   box-shadow: inset 0 0 0 2px ${(p) => (p.$active ? "#fff" : "#444")};
@@ -201,7 +205,7 @@ function useIsMobile() {
 
 // Generate + gallery + preset picker for a single frame. `frame` carries the
 // active selection; `refresh` reloads the frame list so highlights stay live.
-export default function FrameControl({ frame, refresh, topGap }) {
+export default function FrameControl({ frame, refresh }) {
   const isMobile = useIsMobile();
   const [gallery, setGallery] = useState([]);
   const [presets, setPresets] = useState([]);
@@ -297,7 +301,7 @@ export default function FrameControl({ frame, refresh, topGap }) {
   };
 
   return (
-    <Content $topGap={topGap}>
+    <Content>
       <PromptForm onSubmit={generate}>
         <Input
           {...(isMobile ? { as: "textarea", rows: 3 } : {})}
