@@ -103,16 +103,17 @@ const pulse = keyframes`
   50% { opacity: 1; }
 `;
 
-// The loading card fades out (instead of vanishing) when generation finishes.
 const LoadingCard = styled(Card)`
   animation: ${pulse} 1.4s ease-in-out infinite;
+`;
+
+// Wrapper grid cell that fades the loading card out. Fading a wrapper (rather
+// than the card itself) avoids an opacity flicker — removing the pulse
+// animation would otherwise snap opacity back to 1 for a frame.
+const PendingCell = styled.div`
+  min-width: 0;
   transition: opacity 0.35s ease;
-  ${(p) =>
-    p.$out &&
-    css`
-      animation: none;
-      opacity: 0;
-    `}
+  opacity: ${(p) => (p.$out ? 0 : 1)};
 `;
 
 const Name = styled.div`
@@ -315,10 +316,12 @@ export default function FrameControl({ frame, refresh }) {
       <Row>
         {gallery.map((g) =>
           g.pending ? (
-            <LoadingCard as="div" key="pending" $out={phase === "out"}>
-              <AnimPreview shimmer />
-              <Name>{verb}</Name>
-            </LoadingCard>
+            <PendingCell key="pending" $out={phase === "out"}>
+              <LoadingCard as="div">
+                <AnimPreview shimmer />
+                <Name>{verb}</Name>
+              </LoadingCard>
+            </PendingCell>
           ) : (
             <GalleryCard
               key={`g-${g.id}`}
