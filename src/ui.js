@@ -81,7 +81,7 @@ export const Input = styled.input.attrs({
   color: #eee;
   background: #111111;
   border: 2px solid #444;
-  border-radius: 12px;
+  border-radius: 10px;
   outline: none;
   resize: none;
   text-align: left;
@@ -114,7 +114,7 @@ export const Select = styled.select`
   color: #eee;
   background: #111111;
   border: 2px solid #444;
-  border-radius: 12px;
+  border-radius: 10px;
   outline: none;
   cursor: pointer;
   appearance: none;
@@ -141,7 +141,7 @@ export const Button = styled.button`
   color: #111;
   background: #fff;
   border: 2px solid #fff;
-  border-radius: 12px;
+  border-radius: 10px;
   cursor: pointer;
   white-space: nowrap;
   &:not(:disabled):active {
@@ -210,7 +210,7 @@ export const Tab = styled.button`
   color: ${(p) => (p.$active ? "#111" : "#aaa")};
   background: ${(p) => (p.$active ? "#eee" : "transparent")};
   border: 2px solid #fff;
-  border-radius: 999px;
+  border-radius: 10px;
   cursor: pointer;
   @media (hover: hover) {
     &:not(:disabled):hover {

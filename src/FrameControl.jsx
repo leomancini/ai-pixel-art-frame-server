@@ -84,7 +84,7 @@ const Card = styled.button`
   background: #000;
   border: none;
   box-shadow: inset 0 0 0 2px ${(p) => (p.$active ? "#fff" : "#444")};
-  border-radius: 14px;
+  border-radius: 10px;
   cursor: pointer;
   color: inherit;
   font: inherit;

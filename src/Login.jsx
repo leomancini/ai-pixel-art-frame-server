@@ -29,7 +29,7 @@ const SignInButton = styled.button`
   color: #111;
   background: #fff;
   border: 2px solid #fff;
-  border-radius: 12px;
+  border-radius: 10px;
   cursor: pointer;
   white-space: nowrap;
   &:not(:disabled):active {
