@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import styled from "styled-components";
 import { api, setUnauthorizedHandler } from "./api";
-import { Page, Centered, Muted, Tab, GhostButton, Input, Header } from "./ui";
+import { Page, Centered, Muted, Input, Header, Select, DangerButton } from "./ui";
 import Login from "./Login";
 import FrameControl from "./FrameControl";
 import AdminPanel from "./AdminPanel";
@@ -10,7 +10,7 @@ const Settings = styled.div`
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 24px;
+  gap: 56px;
   width: min(1100px, 92vw);
   text-align: left;
 `;
@@ -43,23 +43,35 @@ const RowValue = styled.div`
   overflow-wrap: anywhere;
 `;
 
-const LogoutButton = styled(GhostButton)`
+const LogoutButton = styled(DangerButton)`
   width: 100%;
-  color: #ff5555;
-  border-color: #ff5555;
   @media (min-width: 641px) {
     width: auto;
   }
-  @media (hover: hover) {
-    &:not(:disabled):hover {
-      color: #d94545;
-      border-color: #d94545;
-    }
-  }
-  &:not(:disabled):active {
-    color: #b33636;
-    border-color: #b33636;
-  }
+`;
+
+const Spacer = styled.div`
+  flex: 1;
+`;
+
+// Frame picker in the header (admin) — same look as the people-list dropdown.
+const FrameSelectField = styled.div`
+  position: relative;
+  display: inline-flex;
+`;
+
+const HeaderArrow = styled.span`
+  position: absolute;
+  right: 16px;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  pointer-events: none;
+  color: #bbb;
+  font-size: 20px;
+  text-transform: none;
+  transform: translateY(-3px);
 `;
 
 const FrameLabel = styled.div`
@@ -166,16 +178,33 @@ const pathToView = (p) => (p === "/settings" ? "settings" : "frames");
 
 function Main({ user }) {
   const [frames, setFrames] = useState(null);
-  const [selectedId, setSelectedId] = useState(null);
+  const [selectedId, setSelectedId] = useState(() => {
+    const saved = localStorage.getItem("selectedFrameId");
+    return saved ? Number(saved) : null;
+  });
   const [view, setView] = useState(() => pathToView(window.location.pathname));
   const [showLoading, setShowLoading] = useState(false);
+  const [adminReady, setAdminReady] = useState(false);
 
-  // Only surface "Loading" if the frames take more than a second to arrive.
+  // The current view is "loading" until all of its data is ready (so we render
+  // nothing — just the loading title — instead of flashing partial UI).
+  const loading =
+    frames === null || (view === "settings" && user.isAdmin && !adminReady);
+
+  // Re-wait for admin data each time we (re)enter the settings view.
   useEffect(() => {
-    if (frames !== null) return;
+    if (view !== "settings") setAdminReady(false);
+  }, [view]);
+
+  // Only surface "Loading" if loading takes more than a second.
+  useEffect(() => {
+    if (!loading) {
+      setShowLoading(false);
+      return;
+    }
     const t = setTimeout(() => setShowLoading(true), 1000);
     return () => clearTimeout(t);
-  }, [frames]);
+  }, [loading]);
 
   // Switch view and keep the URL (/ or /settings) in sync for refresh + back/fwd.
   const goto = useCallback((v) => {
@@ -206,6 +235,13 @@ function Main({ user }) {
     loadFrames();
   }, [loadFrames]);
 
+  // Remember the admin's selected frame across refreshes.
+  useEffect(() => {
+    if (user.isAdmin && selectedId != null) {
+      localStorage.setItem("selectedFrameId", String(selectedId));
+    }
+  }, [selectedId, user.isAdmin]);
+
   const logout = async () => {
     await api.post("/api/auth/logout");
     window.location.href = "/"; // back to root, not /settings
@@ -213,18 +249,45 @@ function Main({ user }) {
 
   const selected = frames?.find((f) => f.id === selectedId) ?? null;
 
+  // Admin switches frames with a header dropdown (instead of tabs).
+  const showFrameDropdown =
+    view !== "settings" && user.isAdmin && frames && frames.length > 0;
+
   return (
     <Page>
       <Header $wide={user.isAdmin}>
-        <FrameLabel $loading={frames === null && showLoading}>
-          {frames === null
-            ? showLoading
-              ? "Loading"
-              : ""
-            : selected
-            ? selected.name
-            : ""}
-        </FrameLabel>
+        {showFrameDropdown ? (
+          <>
+            <FrameSelectField>
+              <Select
+                value={selectedId ?? ""}
+                onChange={(e) => setSelectedId(Number(e.target.value))}
+              >
+                {frames.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.name}
+                  </option>
+                ))}
+              </Select>
+              <HeaderArrow>v</HeaderArrow>
+            </FrameSelectField>
+            <Spacer />
+          </>
+        ) : (
+          <FrameLabel $loading={loading && showLoading}>
+            {loading
+              ? showLoading
+                ? "Loading"
+                : ""
+              : view === "settings"
+              ? user.isAdmin
+                ? "Admin Settings"
+                : "Settings"
+              : selected
+              ? selected.name
+              : ""}
+          </FrameLabel>
+        )}
         <IconButton
           $active={view === "settings"}
           onClick={() => goto(view === "settings" ? "frames" : "settings")}
@@ -235,51 +298,45 @@ function Main({ user }) {
         </IconButton>
       </Header>
 
-      {frames === null ? null : view === "settings" ? (
-        <Settings $wide={user.isAdmin}>
-          <SettingsList>
-            <SettingRow>
-              <RowLabel>Account</RowLabel>
-              <RowValue>{user.email}</RowValue>
-            </SettingRow>
-            {!user.isAdmin &&
-              frames?.length > 0 &&
-              frames.map((f) => (
-                <SettingRow key={f.id}>
-                  <RowLabel>Frame name</RowLabel>
-                  <FrameName frame={f} onSaved={loadFrames} />
+      {view === "settings" ? (
+        frames === null ? null : (
+          <Settings $wide={user.isAdmin}>
+            {user.isAdmin && (
+              <AdminPanel
+                onReady={() => setAdminReady(true)}
+                onFramesChanged={loadFrames}
+              />
+            )}
+            {(!user.isAdmin || adminReady) && (
+              <SettingsList>
+                <SettingRow>
+                  <RowLabel>Account</RowLabel>
+                  <RowValue>{user.email}</RowValue>
                 </SettingRow>
-              ))}
-            <SettingRow>
-              <LogoutButton onClick={logout}>Log out</LogoutButton>
-            </SettingRow>
-          </SettingsList>
-          {user.isAdmin && <AdminPanel onFramesChanged={loadFrames} />}
-        </Settings>
-      ) : frames.length === 0 ? (
+                {!user.isAdmin &&
+                  frames?.length > 0 &&
+                  frames.map((f) => (
+                    <SettingRow key={f.id}>
+                      <RowLabel>Frame name</RowLabel>
+                      <FrameName frame={f} onSaved={loadFrames} />
+                    </SettingRow>
+                  ))}
+                <SettingRow>
+                  <LogoutButton onClick={logout}>Log out</LogoutButton>
+                </SettingRow>
+              </SettingsList>
+            )}
+          </Settings>
+        )
+      ) : frames === null ? null : frames.length === 0 ? (
         <Muted>
           No frames assigned to you yet.
           {user.isAdmin ? " Add one in Settings (gear, top right)." : " Ask the admin for access."}
         </Muted>
       ) : (
-        <>
-          {frames.length > 1 && (
-            <Header $wide={user.isAdmin}>
-              {frames.map((f) => (
-                <Tab
-                  key={f.id}
-                  $active={f.id === selectedId}
-                  onClick={() => setSelectedId(f.id)}
-                >
-                  {f.name}
-                </Tab>
-              ))}
-            </Header>
-          )}
-          {selected && (
-            <FrameControl key={selected.id} frame={selected} refresh={loadFrames} />
-          )}
-        </>
+        selected && (
+          <FrameControl key={selected.id} frame={selected} refresh={loadFrames} />
+        )
       )}
     </Page>
   );

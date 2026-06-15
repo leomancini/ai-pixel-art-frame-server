@@ -1,12 +1,12 @@
 import React, { useEffect, useState } from "react";
 import styled from "styled-components";
 import { api } from "./api";
-import { Input, Button, GhostButton, SectionTitle, Muted, Select } from "./ui";
+import { Input, Button, GhostButton, SectionTitle, Muted, Select, DangerButton } from "./ui";
 
 const Wrap = styled.div`
   display: flex;
   flex-direction: column;
-  gap: 36px;
+  gap: 56px;
   width: 100%;
 `;
 
@@ -22,10 +22,11 @@ const AddForm = styled.form`
 `;
 
 const Item = styled.div`
+  box-sizing: border-box;
+  min-height: 48px;
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 12px 0;
 `;
 
 const Grow = styled.div`
@@ -34,9 +35,51 @@ const Grow = styled.div`
 `;
 
 const Sub = styled.div`
+  display: inline-block;
   font-size: 20px;
   color: #666;
   word-break: break-all;
+`;
+
+// Grey-bordered (like the text fields), darker on hover.
+const GreyButton = styled(GhostButton)`
+  color: #bbb;
+  border-color: #444;
+  @media (hover: hover) {
+    &:not(:disabled):hover {
+      color: #888;
+      border-color: #333;
+    }
+  }
+  &:not(:disabled):active {
+    color: #666;
+    border-color: #2a2a2a;
+  }
+`;
+
+// A thin "/" separator between a name and its grey sub-labels.
+const Sep = styled.span`
+  color: #555;
+  margin: 0 6px;
+`;
+
+const SelectField = styled.div`
+  position: relative;
+  display: inline-flex;
+`;
+
+const SelectArrow = styled.span`
+  position: absolute;
+  right: 16px;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  pointer-events: none;
+  color: #bbb;
+  font-size: 20px;
+  text-transform: none;
+  transform: translateY(-3px);
 `;
 
 const KeyBox = styled.div`
@@ -44,20 +87,29 @@ const KeyBox = styled.div`
   font-size: 20px;
   color: #ccc;
   word-break: break-all;
+  -webkit-user-select: text;
+  user-select: text;
 `;
 
 
-export default function AdminPanel({ onFramesChanged }) {
+export default function AdminPanel({ onFramesChanged, onReady }) {
   const [frames, setFrames] = useState([]);
   const [users, setUsers] = useState([]);
+  const [loaded, setLoaded] = useState(false);
   const [frameName, setFrameName] = useState("");
   const [userEmail, setUserEmail] = useState("");
   const [newKey, setNewKey] = useState(null); // { slug, name, deviceKey }
   const [err, setErr] = useState("");
 
   const load = () => {
-    api.get("/api/admin/frames").then(setFrames).catch((e) => setErr(e.message));
-    api.get("/api/admin/users").then(setUsers).catch((e) => setErr(e.message));
+    Promise.all([api.get("/api/admin/frames"), api.get("/api/admin/users")])
+      .then(([fr, us]) => {
+        setFrames(fr);
+        setUsers(us);
+        setLoaded(true);
+        onReady?.();
+      })
+      .catch((e) => setErr(e.message));
   };
   useEffect(load, []);
 
@@ -78,8 +130,7 @@ export default function AdminPanel({ onFramesChanged }) {
 
   const rotateKey = async (f) => {
     if (!window.confirm(`Rotate the device key for "${f.name}"? The old key stops working.`)) return;
-    const { deviceKey } = await api.post(`/api/admin/frames/${f.id}/key`);
-    setNewKey({ slug: f.slug, name: f.name, deviceKey });
+    setNewKey(await api.post(`/api/admin/frames/${f.id}/key`));
   };
 
   const deleteFrame = async (f) => {
@@ -121,31 +172,23 @@ export default function AdminPanel({ onFramesChanged }) {
     load();
   };
 
+  if (!loaded) return null;
+
   return (
     <Wrap>
       {err && <Muted style={{ color: "#bbb" }}>{err}</Muted>}
 
       <Section>
         <SectionTitle>Frames</SectionTitle>
-        <AddForm onSubmit={addFrame}>
-          <Input
-            value={frameName}
-            onChange={(e) => setFrameName(e.target.value)}
-            placeholder="New frame name… e.g. Living Room"
-            maxLength={60}
-          />
-          <Button type="submit" disabled={!frameName.trim()}>
-            Add frame
-          </Button>
-        </AddForm>
         {newKey && (
           <KeyBox>
-            Device key for <b>{newKey.name}</b> (slug <code>{newKey.slug}</code>) — shown once,
-            flash it into that board's <code>secrets.h</code>:
+            Device key for <b>{newKey.name}</b> (slug <code>{newKey.slug}</code>) — flash
+            it into that board's <code>secrets.h</code>:
             <br />
             <b>FRAME_SLUG</b> = {newKey.slug}
             <br />
-            <b>FRAME_KEY</b> = {newKey.deviceKey}
+            <b>FRAME_KEY</b> ={" "}
+            {newKey.deviceKey ?? "(none stored — rotate to generate one)"}
             <div style={{ marginTop: 8 }}>
               <GhostButton onClick={() => setNewKey(null)}>Done</GhostButton>
             </div>
@@ -154,36 +197,45 @@ export default function AdminPanel({ onFramesChanged }) {
         {frames.map((f) => (
           <Item key={f.id}>
             <Grow>
-              {f.name} <Sub>slug: {f.slug}</Sub>
+              {f.name}
+              <Sep>/</Sep>
+              <Sub>{f.slug}</Sub>
             </Grow>
-            <GhostButton onClick={() => rotateKey(f)}>Rotate key</GhostButton>
-            <GhostButton onClick={() => deleteFrame(f)}>Delete</GhostButton>
+            <GreyButton onClick={() => rotateKey(f)}>Rotate key</GreyButton>
+            <DangerButton onClick={() => deleteFrame(f)}>Delete</DangerButton>
           </Item>
         ))}
-        {frames.length === 0 && <Muted>No frames yet — add one above.</Muted>}
+        <AddForm onSubmit={addFrame}>
+          <Input
+            value={frameName}
+            onChange={(e) => setFrameName(e.target.value)}
+            placeholder="name"
+            maxLength={60}
+          />
+          <Button type="submit" disabled={!frameName.trim()}>
+            Add
+          </Button>
+        </AddForm>
       </Section>
 
       <Section>
-        <SectionTitle>People &amp; access</SectionTitle>
-        <AddForm onSubmit={addUser}>
-          <Input
-            value={userEmail}
-            onChange={(e) => setUserEmail(e.target.value)}
-            placeholder="Authorize an email… e.g. friend@gmail.com"
-            type="email"
-          />
-          <Button type="submit" disabled={!userEmail.trim()}>
-            Add person
-          </Button>
-        </AddForm>
+        <SectionTitle>People</SectionTitle>
         {users.map((u) => (
           <Item key={u.id}>
             <Grow>
-              {u.email} {u.isAdmin && <b>(admin)</b>}
+              {u.email}
+              <Sep>/</Sep>
+              {u.isAdmin && (
+                <>
+                  <Sub>admin</Sub>
+                  <Sep>/</Sep>
+                </>
+              )}
               <Sub>{u.linked ? "signed in" : "not signed in yet"}</Sub>
-              {!u.isAdmin && (
+            </Grow>
+            {!u.isAdmin && (
+              <SelectField>
                 <Select
-                  style={{ marginTop: 8 }}
                   value={u.frameIds[0] ?? ""}
                   onChange={(e) =>
                     setAccess(u, e.target.value ? Number(e.target.value) : null)
@@ -196,11 +248,25 @@ export default function AdminPanel({ onFramesChanged }) {
                     </option>
                   ))}
                 </Select>
-              )}
-            </Grow>
-            {!u.isAdmin && <GhostButton onClick={() => deleteUser(u)}>Remove</GhostButton>}
+                <SelectArrow>v</SelectArrow>
+              </SelectField>
+            )}
+            {!u.isAdmin && (
+              <DangerButton onClick={() => deleteUser(u)}>Delete</DangerButton>
+            )}
           </Item>
         ))}
+        <AddForm onSubmit={addUser}>
+          <Input
+            value={userEmail}
+            onChange={(e) => setUserEmail(e.target.value)}
+            placeholder="email"
+            type="email"
+          />
+          <Button type="submit" disabled={!userEmail.trim()}>
+            Add
+          </Button>
+        </AddForm>
       </Section>
     </Wrap>
   );

@@ -58,7 +58,10 @@ export const SectionTitle = styled.h2`
   letter-spacing: 0.06em;
 `;
 
-export const Input = styled.input`
+export const Input = styled.input.attrs({
+  "data-1p-ignore": "",
+  "data-lpignore": "true",
+})`
   flex: 1;
   min-width: 0;
   box-sizing: border-box;
@@ -96,7 +99,7 @@ export const Input = styled.input`
 export const Select = styled.select`
   box-sizing: border-box;
   height: 48px;
-  padding: 12px 16px;
+  padding: 0 40px 0 16px;
   font-size: 20px;
   color: #eee;
   background: #111111;
@@ -104,6 +107,8 @@ export const Select = styled.select`
   border-radius: 12px;
   outline: none;
   cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
   @media (hover: hover) {
     &:not(:disabled):hover {
       border-color: #888;
@@ -163,6 +168,22 @@ export const GhostButton = styled.button`
   &:disabled {
     opacity: 0.4;
     cursor: default;
+  }
+`;
+
+// Shared red button for destructive actions (delete, log out, ...).
+export const DangerButton = styled(GhostButton)`
+  color: #ff3030;
+  border-color: #ff3030;
+  @media (hover: hover) {
+    &:not(:disabled):hover {
+      color: #c01c1c;
+      border-color: #c01c1c;
+    }
+  }
+  &:not(:disabled):active {
+    color: #971515;
+    border-color: #971515;
   }
 `;
 

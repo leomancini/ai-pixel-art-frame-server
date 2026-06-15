@@ -90,6 +90,15 @@ if (!hasFrameId) {
   db.exec("ALTER TABLE animations ADD COLUMN frame_id INTEGER REFERENCES frames(id)");
 }
 
+// Store the plaintext device key so it can be viewed again (not just once).
+const hasDeviceKey = db
+  .prepare("PRAGMA table_info(frames)")
+  .all()
+  .some((c) => c.name === "device_key");
+if (!hasDeviceKey) {
+  db.exec("ALTER TABLE frames ADD COLUMN device_key TEXT");
+}
+
 const sha256 = (s) => crypto.createHash("sha256").update(s).digest("hex");
 
 // Seed the admin user so they can sign in even before being pre-provisioned.
@@ -816,7 +825,7 @@ function slugify(name) {
 }
 
 app.get("/api/admin/frames", requireAdmin, (req, res) => {
-  const frames = db.prepare("SELECT * FROM frames ORDER BY name").all();
+  const frames = db.prepare("SELECT * FROM frames ORDER BY id").all();
   res.json(
     frames.map((f) => ({ id: f.id, slug: f.slug, name: f.name, createdAt: f.created_at }))
   );
@@ -835,10 +844,10 @@ app.post("/api/admin/frames", requireAdmin, (req, res) => {
   const key = crypto.randomBytes(24).toString("hex");
   const info = db
     .prepare(
-      `INSERT INTO frames (slug, name, device_key_hash, active_kind, active_preset_key)
-       VALUES (?, ?, ?, 'preset', ?)`
+      `INSERT INTO frames (slug, name, device_key_hash, device_key, active_kind, active_preset_key)
+       VALUES (?, ?, ?, ?, 'preset', ?)`
     )
-    .run(slug, name, sha256(key), DEFAULT_PRESET_KEY);
+    .run(slug, name, sha256(key), key, DEFAULT_PRESET_KEY);
   loadFrameRuntime(db.prepare("SELECT * FROM frames WHERE id = ?").get(info.lastInsertRowid));
   res.json({ id: info.lastInsertRowid, slug, name, deviceKey: key });
 });
@@ -852,13 +861,17 @@ app.patch("/api/admin/frames/:id", requireAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
-// Rotate a frame's device key (returns the new plaintext once).
+// Rotate a frame's device key (returns the new plaintext).
 app.post("/api/admin/frames/:id/key", requireAdmin, (req, res) => {
   const frame = db.prepare("SELECT * FROM frames WHERE id = ?").get(req.params.id);
   if (!frame) return res.status(404).json({ error: "not found" });
   const key = crypto.randomBytes(24).toString("hex");
-  db.prepare("UPDATE frames SET device_key_hash = ? WHERE id = ?").run(sha256(key), frame.id);
-  res.json({ deviceKey: key });
+  db.prepare("UPDATE frames SET device_key_hash = ?, device_key = ? WHERE id = ?").run(
+    sha256(key),
+    key,
+    frame.id
+  );
+  res.json({ slug: frame.slug, name: frame.name, deviceKey: key });
 });
 
 app.delete("/api/admin/frames/:id", requireAdmin, (req, res) => {
@@ -872,7 +885,7 @@ app.delete("/api/admin/frames/:id", requireAdmin, (req, res) => {
 
 app.get("/api/admin/users", requireAdmin, (req, res) => {
   const users = db
-    .prepare("SELECT id, email, name, is_admin, google_sub, created_at FROM users ORDER BY email")
+    .prepare("SELECT id, email, name, is_admin, google_sub, created_at FROM users ORDER BY id")
     .all();
   const access = db.prepare("SELECT user_id, frame_id FROM frame_access").all();
   const byUser = {};
