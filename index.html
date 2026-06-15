@@ -7,6 +7,10 @@
       content="width=device-width, initial-scale=1, viewport-fit=cover"
     />
     <meta name="theme-color" content="#000000" />
+    <!-- Tell the UA the app is dark so the default web-view backdrop (shown
+         before our CSS paints) is black, not the light/grey default. This is
+         what prevents the intermittent grey launch flash. -->
+    <meta name="color-scheme" content="dark" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
@@ -37,6 +41,7 @@
       body {
         margin: 0;
         background: #000;
+        color-scheme: dark;
       }
       /* Fill the viewport black from the first paint, before React mounts. */
       #root {

@@ -13,6 +13,7 @@
 
 :root {
   --pixel-font: "Analog Mono Plus", "Courier New", monospace;
+  color-scheme: dark;
 }
 
 * {
