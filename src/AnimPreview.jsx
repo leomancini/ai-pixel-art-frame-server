@@ -52,7 +52,7 @@ function drawGrid(ctx, canvas, colorAt) {
 // an endpoint returning { frames, delayMs }. The backing store is sized to the
 // rendered size × devicePixelRatio so it stays sharp at any width. With
 // `shimmer`, it animates a grey/black loading shimmer across the grid instead.
-export default function AnimPreview({ src, shimmer }) {
+export default function AnimPreview({ src, shimmer, onReady }) {
   const canvasRef = useRef(null);
   const animRef = useRef(null);
   // Live playback state so the resize handler can redraw the current frame
@@ -135,8 +135,9 @@ export default function AnimPreview({ src, shimmer }) {
           animRef.current = setTimeout(tick, delayMs);
         };
         tick();
+        onReady?.(); // first frame is drawn — safe to fade the card in
       })
-      .catch(() => {});
+      .catch(() => onReady?.()); // don't leave the card hidden on error
     return () => {
       cancelled = true;
       clearTimeout(animRef.current);

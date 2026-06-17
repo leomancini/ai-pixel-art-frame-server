@@ -99,11 +99,17 @@ const Card = styled.button`
       box-shadow: inset 0 0 0 2px ${(p) => (p.$active ? "#fff" : "#888")};
     }
   }
+  /* A freshly generated card stays hidden until its canvas has drawn, then the
+     whole card (border, title, canvas) fades in together. */
   ${(p) =>
     p.$fresh &&
-    css`
-      animation: ${fadeIn} 0.4s ease;
-    `}
+    (p.$show
+      ? css`
+          animation: ${fadeIn} 0.4s ease;
+        `
+      : css`
+          opacity: 0;
+        `)}
 `;
 
 const pulse = keyframes`
@@ -145,6 +151,9 @@ function GalleryCard({ src, name, active, fresh, onSelect, onDelete }) {
   const timer = useRef(null);
   const longRef = useRef(false);
   const start = useRef({ x: 0, y: 0 });
+  // Fresh cards stay hidden until the canvas reports its first draw, so the whole
+  // card fades in at once instead of the border/title fading before the canvas.
+  const [ready, setReady] = useState(false);
 
   const down = (e) => {
     longRef.current = false;
@@ -176,6 +185,7 @@ function GalleryCard({ src, name, active, fresh, onSelect, onDelete }) {
       type="button"
       $active={active}
       $fresh={fresh}
+      $show={ready}
       onClick={click}
       onPointerDown={down}
       onPointerMove={move}
@@ -183,7 +193,7 @@ function GalleryCard({ src, name, active, fresh, onSelect, onDelete }) {
       onPointerLeave={end}
       onContextMenu={(e) => e.preventDefault()}
     >
-      <AnimPreview src={src} />
+      <AnimPreview src={src} onReady={() => setReady(true)} />
       <Name $active={active}>{name}</Name>
     </Card>
   );
