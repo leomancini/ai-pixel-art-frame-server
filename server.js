@@ -43,7 +43,11 @@ const port = 3136;
 const anthropic = new Anthropic();
 const googleClient = GOOGLE_CLIENT_ID ? new OAuth2Client(GOOGLE_CLIENT_ID) : null;
 
-app.set("trust proxy", true); // honor X-Forwarded-Proto from the Apache reverse proxy
+// Trust exactly one hop — the Apache reverse proxy in front of us — so
+// req.secure honors its X-Forwarded-Proto. NB: must be a hop count, not `true`:
+// a boolean is "permissive" and makes express-rate-limit (used by the MCP OAuth
+// router) throw ERR_ERL_PERMISSIVE_TRUST_PROXY, 500-ing /authorize and /token.
+app.set("trust proxy", 1);
 app.use(express.json({ limit: "16mb" })); // animation frames are large
 app.use(cookieParser());
 app.use(express.static(join(__dirname, "dist")));
