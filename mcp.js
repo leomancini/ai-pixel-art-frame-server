@@ -106,25 +106,36 @@ export function mountMcp(app, deps) {
   // ── Frame lookup + access helpers ───────────────────────────────────────────
   const frameBySlug = (slug) => db.prepare("SELECT * FROM frames WHERE slug = ?").get(slug);
 
-  // Resolve a tool's `frame` argument (slug, or numeric id) to a slug, for the
-  // gate's frame-003 check. Returns null if it can't be resolved to a frame.
-  function resolveSlug(frameArg) {
-    if (frameArg == null) return null;
-    const asStr = String(frameArg);
-    if (frameBySlug(asStr)) return asStr;
-    if (/^\d+$/.test(asStr)) {
-      const row = db.prepare("SELECT slug FROM frames WHERE id = ?").get(Number(asStr));
-      if (row) return row.slug;
+  // Resolve a tool's `frame` argument to a frame row. Accepts the slug, the
+  // numeric id, or the display name (case-insensitive) so callers can refer to
+  // frames however is natural. Returns { frame } or { error } (the error names
+  // the ambiguity when a name matches more than one frame).
+  function lookupFrame(frameArg) {
+    if (frameArg == null) return { error: "a frame is required (name or slug)" };
+    const s = String(frameArg).trim();
+    const bySlug = db.prepare("SELECT * FROM frames WHERE slug = ?").get(s);
+    if (bySlug) return { frame: bySlug };
+    if (/^\d+$/.test(s)) {
+      const byId = db.prepare("SELECT * FROM frames WHERE id = ?").get(Number(s));
+      if (byId) return { frame: byId };
     }
-    return null;
+    const byName = db.prepare("SELECT * FROM frames WHERE lower(name) = lower(?)").all(s);
+    if (byName.length === 1) return { frame: byName[0] };
+    if (byName.length > 1) {
+      return { error: `more than one frame is named "${s}" — use its slug (${byName.map((f) => f.slug).join(", ")})` };
+    }
+    return { error: `no frame matches "${s}" — list_frames shows the available names and slugs` };
   }
+
+  // The slug a frame argument resolves to (or null), for the gate's anon check.
+  const resolveSlug = (frameArg) => lookupFrame(frameArg).frame?.slug ?? null;
 
   // Resolve + authorize a frame for a tool call. `auth` is the AuthInfo, or
   // undefined for an anonymous caller. Returns { frame } or { error }.
   function resolveFrameForCall(auth, frameArg) {
-    const slug = resolveSlug(frameArg);
-    const frame = slug ? frameBySlug(slug) : null;
-    if (!frame) return { error: `no frame matches ${JSON.stringify(frameArg)}` };
+    const found = lookupFrame(frameArg);
+    if (found.error) return { error: found.error };
+    const frame = found.frame;
     if (!auth) {
       if (frame.slug !== ANON_SLUG) {
         return { error: `authentication required to control '${frame.slug}'` };
@@ -434,7 +445,8 @@ export function mountMcp(app, deps) {
         instructions:
           "Control physical 32x32 pixel-art LED frames: list frames, generate new " +
           "animations from a text prompt, and choose which animation a frame shows. " +
-          "Most tools take a `frame` slug (e.g. 'frame-003').",
+          "Refer to a frame by its name (e.g. 'Living Room') or its slug (e.g. " +
+          "'frame-003'); list_frames shows both.",
       }
     );
 
@@ -488,7 +500,7 @@ export function mountMcp(app, deps) {
           "List the animations available on a frame: the shared presets and the frame's " +
           "own AI-generated gallery, marking which one is currently showing. Use the " +
           "returned `galleryId` or `preset` with show_animation.",
-        inputSchema: { frame: z.string().describe("the frame's slug, e.g. 'frame-003'") },
+        inputSchema: { frame: z.string().describe("the frame's name or slug, e.g. 'Living Room' or 'frame-003'") },
       },
       async ({ frame: frameArg }, extra) => {
         const { frame, error } = resolveFrameForCall(extra.authInfo, frameArg);
@@ -529,7 +541,7 @@ export function mountMcp(app, deps) {
           "writes the pixel-art render code), save it to the frame's gallery, and show it " +
           "immediately. Takes ~10-40s. Returns the new gallery animation's id.",
         inputSchema: {
-          frame: z.string().describe("the frame's slug, e.g. 'frame-003'"),
+          frame: z.string().describe("the frame's name or slug, e.g. 'Living Room' or 'frame-003'"),
           prompt: z
             .string()
             .min(1)
@@ -571,7 +583,7 @@ export function mountMcp(app, deps) {
           "(an AI-generated animation from the frame's gallery) or `preset` (a shared preset " +
           "key). The physical frame updates within a second.",
         inputSchema: {
-          frame: z.string().describe("the frame's slug, e.g. 'frame-003'"),
+          frame: z.string().describe("the frame's name or slug, e.g. 'Living Room' or 'frame-003'"),
           galleryId: z.number().int().optional().describe("a gallery animation id from list_animations"),
           preset: z.string().optional().describe("a preset key, e.g. 'plasma', 'starfield'"),
         },
