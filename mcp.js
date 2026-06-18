@@ -368,10 +368,14 @@ export function mountMcp(app, deps) {
 
   // ── Bearer gate with the frame-003 anonymous exception ──────────────────────
   //
-  // A valid token → authenticated. No token → allowed only for discovery /
-  // lifecycle messages and for tools/call that target the anonymous slug;
-  // anything else gets a 401 that points the client at our OAuth metadata so it
-  // can start the Google login. (An invalid/expired token is also a 401.)
+  // A valid token → authenticated. No token → allowed ONLY for a tools/call that
+  // explicitly targets the anonymous slug; everything else — including the
+  // `initialize` handshake — gets a 401 pointing at our OAuth metadata. That 401
+  // on connect is what makes an interactive client (e.g. Claude) start the
+  // Google login flow; without it the client would just connect anonymously and
+  // never offer to sign in. The stateless transport serves a bare tools/call
+  // without a prior initialize, so a non-interactive client can still drive
+  // frame-003 with no token. (An invalid/expired token is also a 401.)
 
   function messagesOf(body) {
     if (Array.isArray(body)) return body;
@@ -379,12 +383,12 @@ export function mountMcp(app, deps) {
     return [];
   }
 
-  // True if this message is safe to serve without a token.
+  // True if this message is safe to serve without a token: only a tools/call
+  // aimed at the anonymous frame. Anything else is challenged so the client logs
+  // in (an authenticated session then has full, access-checked control).
   function anonAllowed(msg) {
-    if (!msg || msg.method !== "tools/call") return true; // initialize, tools/list, ping, notifications…
-    const frameArg = msg.params?.arguments?.frame;
-    if (frameArg == null) return true; // no-frame tools (list_frames/whoami) self-restrict to ANON_SLUG
-    return resolveSlug(frameArg) === ANON_SLUG;
+    if (!msg || msg.method !== "tools/call") return false;
+    return resolveSlug(msg.params?.arguments?.frame) === ANON_SLUG;
   }
 
   function challenge(req, res, error) {
