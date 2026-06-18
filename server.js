@@ -9,6 +9,7 @@ import crypto from "node:crypto";
 import vm from "node:vm";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
+import { mountMcp } from "./mcp.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -23,6 +24,14 @@ const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID ?? null;
 if (!GOOGLE_CLIENT_ID) {
   console.warn("[!] GOOGLE_CLIENT_ID not set — sign-in will be unavailable until it is");
 }
+// Google OAuth client secret — only needed for the MCP server's server-side
+// Google login (the website's GIS flow is public and uses no secret).
+const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET ?? null;
+// Public origin the MCP authorization server advertises (no path). Behind the
+// TLS proxy set this to the https origin; defaults to localhost for dev.
+const MCP_BASE_URL = (process.env.MCP_BASE_URL ?? `http://localhost:3136`).trim();
+// The one frame slug the MCP endpoint serves without authentication.
+const MCP_ANON_FRAME_SLUG = (process.env.MCP_ANON_FRAME_SLUG ?? "frame-003").trim();
 let SESSION_SECRET = process.env.SESSION_SECRET;
 if (!SESSION_SECRET) {
   SESSION_SECRET = crypto.randomBytes(32).toString("hex");
@@ -635,27 +644,35 @@ app.post("/api/auth/google-token", async (req, res) => {
   return finishLogin(req, res, { email: info.email, sub: info.sub, name });
 });
 
-// Shared: gate the email, upsert the user, set the session cookie.
-function finishLogin(req, res, { email, sub, name }) {
+// Gate the email and upsert the user. Returns the user row, or null if the
+// email isn't authorized to sign in (not the admin and not pre-provisioned).
+// Shared by the website's cookie login and the MCP server's Google login.
+function upsertAuthorizedUser({ email, sub, name }) {
   email = email.trim().toLowerCase();
   const isAdmin = email === ADMIN_EMAIL;
 
-  let user = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
-  if (!user && !isAdmin) {
-    return res
-      .status(403)
-      .json({ error: "this account isn't authorized — ask the admin for access" });
-  }
-  if (!user) {
+  const existing = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
+  if (!existing && !isAdmin) return null;
+  if (!existing) {
     db.prepare(
       "INSERT INTO users (email, google_sub, name, is_admin) VALUES (?, ?, ?, ?)"
     ).run(email, sub ?? null, name ?? null, isAdmin ? 1 : 0);
   } else {
     db.prepare(
       "UPDATE users SET google_sub = COALESCE(?, google_sub), name = COALESCE(?, name), is_admin = ? WHERE id = ?"
-    ).run(sub ?? null, name ?? null, isAdmin ? 1 : 0, user.id);
+    ).run(sub ?? null, name ?? null, isAdmin ? 1 : 0, existing.id);
   }
-  user = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
+  return db.prepare("SELECT * FROM users WHERE email = ?").get(email);
+}
+
+// Shared: gate the email, upsert the user, set the session cookie.
+function finishLogin(req, res, { email, sub, name }) {
+  const user = upsertAuthorizedUser({ email, sub, name });
+  if (!user) {
+    return res
+      .status(403)
+      .json({ error: "this account isn't authorized — ask the admin for access" });
+  }
 
   res.cookie(SESSION_COOKIE, signSession(user), {
     httpOnly: true,
@@ -1067,6 +1084,25 @@ app.get("/poll", (req, res) => {
     clearTimeout(timer);
     rt.pollWaiters = rt.pollWaiters.filter((w) => w !== wake);
   });
+});
+
+// ── MCP server (control frames + animations over the Model Context Protocol) ──
+// Mounted before the SPA fallback so its /mcp, /.well-known and OAuth routes win.
+mountMcp(app, {
+  db,
+  presets,
+  DEFAULT_PRESET_KEY,
+  generateAnimation,
+  setFrameGallery,
+  setFramePreset,
+  upsertAuthorizedUser,
+  config: {
+    baseUrl: MCP_BASE_URL,
+    googleClientId: GOOGLE_CLIENT_ID,
+    googleClientSecret: GOOGLE_CLIENT_SECRET,
+    sessionSecret: SESSION_SECRET,
+    anonFrameSlug: MCP_ANON_FRAME_SLUG,
+  },
 });
 
 // SPA fallback
