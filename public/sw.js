@@ -3,7 +3,7 @@
 // gap where, as the iOS splash fades, the still-loading page showed a grey/white
 // flash. App data is always fetched fresh (API/device endpoints are network-only).
 
-const CACHE = "apf-shell-v13";
+const CACHE = "apf-shell-v14";
 // Stable, unhashed shell assets worth precaching on install.
 const PRECACHE = [
   "/",
@@ -40,11 +40,23 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
 
-  // Always fresh: API + device endpoints (never cache).
+  // Server-handled endpoints: never serve the app shell for these — let them hit
+  // the network. Covers API + device endpoints AND the OAuth/MCP routes, whose
+  // top-level navigations (/authorize, the Google /oauth callback) would
+  // otherwise be hijacked by the navigation handler below and render the SPA
+  // instead of redirecting.
   if (
     url.pathname.startsWith("/api") ||
     url.pathname.startsWith("/animation") ||
-    url.pathname.startsWith("/poll")
+    url.pathname.startsWith("/poll") ||
+    url.pathname.startsWith("/stream") ||
+    url.pathname.startsWith("/authorize") ||
+    url.pathname.startsWith("/oauth") ||
+    url.pathname.startsWith("/token") ||
+    url.pathname.startsWith("/register") ||
+    url.pathname.startsWith("/revoke") ||
+    url.pathname.startsWith("/mcp") ||
+    url.pathname.startsWith("/.well-known")
   ) {
     return; // default network handling
   }
