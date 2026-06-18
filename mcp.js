@@ -484,7 +484,7 @@ export function mountMcp(app, deps) {
       async (_args, extra) => {
         const frames = visibleFrames(extra.authInfo).map((f) => ({
           slug: f.slug,
-          name: f.name,
+          name: f.name?.toUpperCase() ?? f.name, // frame names are always upper-cased
           showing: activeAnimationLabel(f),
         }));
         if (!frames.length) return ok("No frames are available to you.");
