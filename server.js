@@ -143,7 +143,12 @@ const FRAME_HEIGHT = 32;
 const FRAME_PIXEL_BYTES = FRAME_WIDTH * FRAME_HEIGHT * 2; // RGB565
 const ANIM_MAGIC = Buffer.from("ANM0", "ascii");
 const MAX_FRAMES = 64; // must match the firmware's RAM budget
-const POLL_HOLD_MS = 20000; // keep under Apache's proxy timeout
+// Keep under Apache's proxy timeout. Also kept short so the connection never
+// sits idle long enough for a proxy/NAT/keep-alive reaper to close it mid-hold:
+// each completed poll flushes "ID n" + the next request, keeping the socket
+// warm. A drop is expensive — the firmware re-downloads the whole animation on
+// reconnect (visible freeze + loading ring), even when nothing changed.
+const POLL_HOLD_MS = 10000;
 
 // Pack 8-bit RGB into a little-endian RGB565 uint16
 function rgb565(r, g, b) {
