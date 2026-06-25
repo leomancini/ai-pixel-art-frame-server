@@ -31,7 +31,10 @@ const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET ?? null;
 // TLS proxy set this to the https origin; defaults to localhost for dev.
 const MCP_BASE_URL = (process.env.MCP_BASE_URL ?? `http://localhost:3136`).trim();
 // The one frame slug the MCP endpoint serves without authentication.
-const MCP_ANON_FRAME_SLUG = (process.env.MCP_ANON_FRAME_SLUG ?? "frame-003").trim();
+// Empty (the default) means no frame is anonymously controllable over MCP —
+// every frame then requires Google login. Set this only to expose a dedicated
+// throwaway demo frame; never a real, physically-deployed frame.
+const MCP_ANON_FRAME_SLUG = (process.env.MCP_ANON_FRAME_SLUG ?? "").trim();
 let SESSION_SECRET = process.env.SESSION_SECRET;
 if (!SESSION_SECRET) {
   SESSION_SECRET = crypto.randomBytes(32).toString("hex");

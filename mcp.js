@@ -64,7 +64,8 @@ export function mountMcp(app, deps) {
     config,
   } = deps;
 
-  const ANON_SLUG = config.anonFrameSlug || "frame-003";
+  // Falsy (unset) means no anonymous frame: every tool call requires login.
+  const ANON_SLUG = config.anonFrameSlug || null;
   const SESSION_SECRET = config.sessionSecret;
   const BASE_URL = config.baseUrl.replace(/\/+$/, "");
   const MCP_URL = `${BASE_URL}/mcp`;
@@ -74,7 +75,9 @@ export function mountMcp(app, deps) {
   if (!oauthEnabled) {
     console.warn(
       "[!] MCP: GOOGLE_CLIENT_SECRET (and GOOGLE_CLIENT_ID) not set — MCP login is " +
-        `disabled; only the '${ANON_SLUG}' frame is reachable (unauthenticated).`
+        (ANON_SLUG
+          ? `disabled; only the '${ANON_SLUG}' frame is reachable (unauthenticated).`
+          : "disabled and no anonymous frame is set — MCP is unreachable.")
     );
   }
 
@@ -154,6 +157,7 @@ export function mountMcp(app, deps) {
   // The frames a caller may see in list_frames.
   function visibleFrames(auth) {
     if (!auth) {
+      if (!ANON_SLUG) return [];
       const f = frameBySlug(ANON_SLUG);
       return f ? [f] : [];
     }
@@ -398,6 +402,7 @@ export function mountMcp(app, deps) {
   // aimed at the anonymous frame. Anything else is challenged so the client logs
   // in (an authenticated session then has full, access-checked control).
   function anonAllowed(msg) {
+    if (!ANON_SLUG) return false; // no anonymous frame: always challenge
     if (!msg || msg.method !== "tools/call") return false;
     return resolveSlug(msg.params?.arguments?.frame) === ANON_SLUG;
   }
@@ -464,7 +469,12 @@ export function mountMcp(app, deps) {
       },
       async (_args, extra) => {
         const a = extra.authInfo;
-        if (!a) return ok(`anonymous — limited to the '${ANON_SLUG}' frame`);
+        if (!a)
+          return ok(
+            ANON_SLUG
+              ? `anonymous — limited to the '${ANON_SLUG}' frame`
+              : "anonymous — sign in to control a frame"
+          );
         return ok(`signed in as ${a.extra.email}${a.extra.isAdmin ? " (admin)" : ""}`, {
           email: a.extra.email,
           isAdmin: a.extra.isAdmin,
@@ -648,6 +658,8 @@ export function mountMcp(app, deps) {
 
   console.log(
     `[mcp] endpoint at ${MCP_URL} — ${oauthEnabled ? "Google OAuth enabled" : "OAuth disabled"}; ` +
-      `'${ANON_SLUG}' is reachable unauthenticated`
+      (ANON_SLUG
+        ? `'${ANON_SLUG}' is reachable unauthenticated`
+        : "all frames require authentication")
   );
 }
