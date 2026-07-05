@@ -925,10 +925,10 @@ app.post("/api/admin/frames", requireAdmin, (req, res) => {
 app.patch("/api/admin/frames/:id", requireAdmin, (req, res) => {
   const frame = db.prepare("SELECT * FROM frames WHERE id = ?").get(req.params.id);
   if (!frame) return res.status(404).json({ error: "not found" });
-  const name = (req.body?.name ?? "").trim();
+  const name = (req.body?.name ?? "").trim().slice(0, 60);
   if (!name) return res.status(400).json({ error: "name is required" });
   db.prepare("UPDATE frames SET name = ? WHERE id = ?").run(name, frame.id);
-  res.json({ ok: true });
+  res.json({ ok: true, name });
 });
 
 // Rotate a frame's device key (returns the new plaintext).

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import styled from "styled-components";
 import { api } from "./api";
 import { Input, Button, GhostButton, SectionTitle, Muted, Select, DangerButton } from "./ui";
@@ -97,6 +97,39 @@ const KeyBox = styled.div`
   user-select: text;
 `;
 
+
+// Lets an admin rename any frame (not just ones they can access). Auto-saves
+// (debounced) as they type, mirroring FrameName in App.jsx.
+function AdminFrameName({ frame, onSaved }) {
+  const [name, setName] = useState(frame.name);
+  const firstRef = useRef(true);
+  useEffect(() => {
+    if (firstRef.current) {
+      firstRef.current = false;
+      return;
+    }
+    if (!name.trim()) return; // name is required; don't save empty
+    const t = setTimeout(() => {
+      api
+        .patch(`/api/admin/frames/${frame.id}`, { name: name.trim() })
+        .then(() => onSaved?.());
+    }, 500);
+    return () => clearTimeout(t);
+  }, [name, frame.id, onSaved]);
+  return (
+    <Input
+      value={name}
+      onChange={(e) => setName(e.target.value)}
+      maxLength={60}
+      spellCheck={false}
+      autoComplete="off"
+      autoCorrect="off"
+      autoCapitalize="off"
+      data-1p-ignore="true"
+      data-lpignore="true"
+    />
+  );
+}
 
 export default function AdminPanel({ onFramesChanged, onReady }) {
   const [frames, setFrames] = useState([]);
@@ -203,7 +236,13 @@ export default function AdminPanel({ onFramesChanged, onReady }) {
         {frames.map((f) => (
           <Item key={f.id}>
             <Grow>
-              {f.name}
+              <AdminFrameName
+                frame={f}
+                onSaved={() => {
+                  load();
+                  onFramesChanged?.();
+                }}
+              />
               <Sep>/</Sep>
               <Sub>{f.slug}</Sub>
               {f.hasApiKey && (
