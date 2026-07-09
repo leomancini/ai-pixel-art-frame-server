@@ -534,13 +534,24 @@ async function generateAnimation(prompt, apiKey) {
 // ── Auth: Google ID token -> our own httpOnly JWT session cookie ──────────────
 
 const SESSION_COOKIE = "session";
+const SESSION_TTL_MS = 365 * 24 * 60 * 60 * 1000;
 
 function signSession(user) {
   return jwt.sign(
     { uid: user.id, email: user.email, name: user.name, isAdmin: !!user.is_admin },
     SESSION_SECRET,
-    { expiresIn: "30d" }
+    { expiresIn: "365d" }
   );
+}
+
+function setSessionCookie(req, res, user) {
+  res.cookie(SESSION_COOKIE, signSession(user), {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: req.secure, // true behind the TLS proxy, false on http://localhost
+    maxAge: SESSION_TTL_MS,
+    path: "/",
+  });
 }
 
 function currentUser(req) {
@@ -686,13 +697,7 @@ function finishLogin(req, res, { email, sub, name }) {
       .json({ error: "this account isn't authorized — ask the admin for access" });
   }
 
-  res.cookie(SESSION_COOKIE, signSession(user), {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: req.secure, // true behind the TLS proxy, false on http://localhost
-    maxAge: 30 * 24 * 60 * 60 * 1000,
-    path: "/",
-  });
+  setSessionCookie(req, res, user);
   res.json({ id: user.id, email: user.email, name: user.name, isAdmin: !!user.is_admin });
 }
 
@@ -701,10 +706,19 @@ app.post("/api/auth/logout", (req, res) => {
   res.json({ ok: true });
 });
 
+// Called by the SPA on every page load; also slides the session — re-issues a
+// fresh cookie from the user's current DB row, so a login only lapses after a
+// year without visiting (and a deleted user's cookie dies on next load).
 app.get("/api/me", (req, res) => {
   const u = currentUser(req);
   if (!u) return res.status(401).json({ error: "not signed in" });
-  res.json({ id: u.uid, email: u.email, name: u.name, isAdmin: !!u.isAdmin });
+  const user = db.prepare("SELECT * FROM users WHERE id = ?").get(u.uid);
+  if (!user) {
+    res.clearCookie(SESSION_COOKIE, { path: "/" });
+    return res.status(401).json({ error: "not signed in" });
+  }
+  setSessionCookie(req, res, user);
+  res.json({ id: user.id, email: user.email, name: user.name, isAdmin: !!user.is_admin });
 });
 
 // ── Shared preset endpoints (frame-independent data; activation is per frame) ──
