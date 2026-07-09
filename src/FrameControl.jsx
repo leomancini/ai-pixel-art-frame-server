@@ -117,10 +117,6 @@ const pulse = keyframes`
   50% { opacity: 0.5; }
 `;
 
-const LoadingCard = styled(Card)`
-  animation: ${pulse} 1.4s ease-in-out infinite;
-`;
-
 // Wrapper grid cell that fades the loading card out. Fading a wrapper (rather
 // than the card itself) avoids an opacity flicker — removing the pulse
 // animation would otherwise snap opacity back to 1 for a frame.
@@ -141,6 +137,21 @@ const Name = styled.div`
   @media (hover: hover) {
     ${Card}:hover & {
       color: ${(p) => (p.$active ? "#fff" : "#aaa")};
+    }
+  }
+`;
+
+// Defined after Name so its hover overrides win the cascade: the loading tile
+// isn't interactive, so it keeps the resting border/title colors on hover.
+const LoadingCard = styled(Card)`
+  animation: ${pulse} 1.4s ease-in-out infinite;
+  cursor: wait;
+  @media (hover: hover) {
+    &:hover {
+      box-shadow: inset 0 0 0 2px #444;
+    }
+    &:hover ${Name} {
+      color: #777;
     }
   }
 `;
