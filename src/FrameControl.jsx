@@ -271,6 +271,27 @@ export default function FrameControl({ frame, refresh }) {
     e.preventDefault();
     const text = prompt.trim();
     if (!text || busy) return;
+
+    // `say hello world` / `say "hello world"` — scroll the text as a marquee
+    // on the frame, no AI generation involved.
+    const say = text.match(/^say\s+([\s\S]+)$/i);
+    if (say) {
+      setPhase("loading");
+      setError(false);
+      setStatus("");
+      setPrompt("");
+      try {
+        const data = await api.post(`/api/frames/${frame.id}/say`, { text: say[1] });
+        refresh(); // the frame's active selection is now the message
+        setStatus(`Now showing “${data.text}”`);
+      } catch (err) {
+        setError(true);
+        setStatus(err.message);
+      }
+      setPhase("idle");
+      return;
+    }
+
     setPhase("loading");
     setError(false);
     setStatus("");

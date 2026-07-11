@@ -95,6 +95,13 @@ db.exec(`
     frame_id INTEGER NOT NULL REFERENCES frames(id) ON DELETE CASCADE,
     PRIMARY KEY (user_id, frame_id)
   );
+  CREATE TABLE IF NOT EXISTS service_tokens (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    token TEXT NOT NULL,               -- plaintext, viewable by the admin (like device_key)
+    token_hash TEXT NOT NULL UNIQUE,   -- sha256; what requests are matched against
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
 `);
 
 // Add animations.frame_id if this DB predates multi-frame support.
@@ -123,6 +130,16 @@ const hasFrameApiKey = db
   .some((c) => c.name === "anthropic_api_key");
 if (!hasFrameApiKey) {
   db.exec("ALTER TABLE frames ADD COLUMN anthropic_api_key TEXT");
+}
+
+// Text-message marquee support: the active selection can be a plain string
+// (active_kind 'text'), persisted here so it survives restarts.
+const hasActiveText = db
+  .prepare("PRAGMA table_info(frames)")
+  .all()
+  .some((c) => c.name === "active_text");
+if (!hasActiveText) {
+  db.exec("ALTER TABLE frames ADD COLUMN active_text TEXT");
 }
 
 const sha256 = (s) => crypto.createHash("sha256").update(s).digest("hex");
@@ -309,6 +326,129 @@ for (const preset of Object.values(presets)) {
 }
 const DEFAULT_PRESET_KEY = "plasma";
 
+// ── Text marquee (server-rendered; no AI, no firmware changes) ─────────────────
+//
+// A message is rasterized into a normal looping animation the firmware already
+// knows how to play: the text enters from the right edge, scrolls fully off the
+// left edge, and the loop repeats. Rendered at 2x from a classic 5x7 font
+// (14px-tall glyphs, vertically centered). The firmware's MAX_FRAMES budget
+// caps a loop at 64 frames, so longer messages scroll more pixels per frame.
+
+// Classic 5x7 font, column-major, bit 0 = top row. Lowercase folds to upper.
+// Unknown characters render as a space.
+const FONT5X7 = {
+  " ": [0x00, 0x00, 0x00, 0x00, 0x00],
+  "!": [0x00, 0x00, 0x5f, 0x00, 0x00],
+  '"': [0x00, 0x07, 0x00, 0x07, 0x00],
+  "#": [0x14, 0x7f, 0x14, 0x7f, 0x14],
+  $: [0x24, 0x2a, 0x7f, 0x2a, 0x12],
+  "%": [0x23, 0x13, 0x08, 0x64, 0x62],
+  "&": [0x36, 0x49, 0x55, 0x22, 0x50],
+  "'": [0x00, 0x05, 0x03, 0x00, 0x00],
+  "(": [0x00, 0x1c, 0x22, 0x41, 0x00],
+  ")": [0x00, 0x41, 0x22, 0x1c, 0x00],
+  "*": [0x14, 0x08, 0x3e, 0x08, 0x14],
+  "+": [0x08, 0x08, 0x3e, 0x08, 0x08],
+  ",": [0x00, 0x50, 0x30, 0x00, 0x00],
+  "-": [0x08, 0x08, 0x08, 0x08, 0x08],
+  ".": [0x00, 0x60, 0x60, 0x00, 0x00],
+  "/": [0x20, 0x10, 0x08, 0x04, 0x02],
+  0: [0x3e, 0x51, 0x49, 0x45, 0x3e],
+  1: [0x00, 0x42, 0x7f, 0x40, 0x00],
+  2: [0x42, 0x61, 0x51, 0x49, 0x46],
+  3: [0x21, 0x41, 0x45, 0x4b, 0x31],
+  4: [0x18, 0x14, 0x12, 0x7f, 0x10],
+  5: [0x27, 0x45, 0x45, 0x45, 0x39],
+  6: [0x3c, 0x4a, 0x49, 0x49, 0x30],
+  7: [0x01, 0x71, 0x09, 0x05, 0x03],
+  8: [0x36, 0x49, 0x49, 0x49, 0x36],
+  9: [0x06, 0x49, 0x49, 0x29, 0x1e],
+  ":": [0x00, 0x36, 0x36, 0x00, 0x00],
+  ";": [0x00, 0x56, 0x36, 0x00, 0x00],
+  "<": [0x08, 0x14, 0x22, 0x41, 0x00],
+  "=": [0x14, 0x14, 0x14, 0x14, 0x14],
+  ">": [0x00, 0x41, 0x22, 0x14, 0x08],
+  "?": [0x02, 0x01, 0x51, 0x09, 0x06],
+  "@": [0x32, 0x49, 0x79, 0x41, 0x3e],
+  A: [0x7e, 0x11, 0x11, 0x11, 0x7e],
+  B: [0x7f, 0x49, 0x49, 0x49, 0x36],
+  C: [0x3e, 0x41, 0x41, 0x41, 0x22],
+  D: [0x7f, 0x41, 0x41, 0x22, 0x1c],
+  E: [0x7f, 0x49, 0x49, 0x49, 0x41],
+  F: [0x7f, 0x09, 0x09, 0x09, 0x01],
+  G: [0x3e, 0x41, 0x49, 0x49, 0x7a],
+  H: [0x7f, 0x08, 0x08, 0x08, 0x7f],
+  I: [0x00, 0x41, 0x7f, 0x41, 0x00],
+  J: [0x20, 0x40, 0x41, 0x3f, 0x01],
+  K: [0x7f, 0x08, 0x14, 0x22, 0x41],
+  L: [0x7f, 0x40, 0x40, 0x40, 0x40],
+  M: [0x7f, 0x02, 0x0c, 0x02, 0x7f],
+  N: [0x7f, 0x04, 0x08, 0x10, 0x7f],
+  O: [0x3e, 0x41, 0x41, 0x41, 0x3e],
+  P: [0x7f, 0x09, 0x09, 0x09, 0x06],
+  Q: [0x3e, 0x41, 0x51, 0x21, 0x5e],
+  R: [0x7f, 0x09, 0x19, 0x29, 0x46],
+  S: [0x46, 0x49, 0x49, 0x49, 0x31],
+  T: [0x01, 0x01, 0x7f, 0x01, 0x01],
+  U: [0x3f, 0x40, 0x40, 0x40, 0x3f],
+  V: [0x1f, 0x20, 0x40, 0x20, 0x1f],
+  W: [0x3f, 0x40, 0x38, 0x40, 0x3f],
+  X: [0x63, 0x14, 0x08, 0x14, 0x63],
+  Y: [0x07, 0x08, 0x70, 0x08, 0x07],
+  Z: [0x61, 0x51, 0x49, 0x45, 0x43],
+};
+
+const MARQUEE_SCALE = 2;
+const MAX_TEXT_LENGTH = 100;
+
+function renderMarqueeFrames(text) {
+  // Build the message as font columns (7-bit masks), one blank column between
+  // characters.
+  const cols = [];
+  for (const ch of text.toUpperCase()) {
+    cols.push(...(FONT5X7[ch] ?? FONT5X7[" "]), 0x00);
+  }
+  const textWidth = cols.length * MARQUEE_SCALE;
+  const travel = textWidth + FRAME_WIDTH; // fully on from the right, fully off the left
+  const step = Math.ceil(travel / MAX_FRAMES); // px per frame; 1 unless the text is long
+  const frameCount = Math.ceil(travel / step);
+  // Hold perceived speed near 24 px/s until delay caps out; beyond that,
+  // longer messages simply scroll faster.
+  const delayMs = Math.max(30, Math.min(150, step * 42));
+  const y0 = Math.floor((FRAME_HEIGHT - 7 * MARQUEE_SCALE) / 2);
+  const frames = [];
+  for (let i = 0; i < frameCount; i++) {
+    const rgb = new Array(FRAME_WIDTH * FRAME_HEIGHT * 3).fill(0);
+    const left = FRAME_WIDTH - i * step; // x of the text's first column
+    for (let c = 0; c < cols.length; c++) {
+      const bits = cols[c];
+      if (!bits) continue;
+      for (let sx = 0; sx < MARQUEE_SCALE; sx++) {
+        const x = left + c * MARQUEE_SCALE + sx;
+        if (x < 0 || x >= FRAME_WIDTH) continue;
+        for (let row = 0; row < 7; row++) {
+          if (!((bits >> row) & 1)) continue;
+          for (let sy = 0; sy < MARQUEE_SCALE; sy++) {
+            const o = ((y0 + row * MARQUEE_SCALE + sy) * FRAME_WIDTH + x) * 3;
+            rgb[o] = rgb[o + 1] = rgb[o + 2] = 255;
+          }
+        }
+      }
+    }
+    frames.push(rgb);
+  }
+  return { frames, delayMs };
+}
+
+// Normalize a message: trim, and strip one pair of surrounding quotes so both
+// `say hello` and `say "hello world"` work.
+function parseSayText(raw) {
+  let text = String(raw ?? "").trim();
+  const quoted = text.match(/^(["'])([\s\S]*)\1$/);
+  if (quoted) text = quoted[2].trim();
+  return text;
+}
+
 // ── Per-frame state helpers ───────────────────────────────────────────────────
 
 function galleryRowToFrames(row) {
@@ -329,7 +469,14 @@ function loadFrameRuntime(frameRow) {
     pollWaiters: [],
     activePresetKey: null,
     activeGalleryId: null,
+    activeText: null,
   };
+  if (frameRow.active_kind === "text" && frameRow.active_text) {
+    const { frames, delayMs } = renderMarqueeFrames(frameRow.active_text);
+    rt.frames = rgbToBuffers(frames);
+    rt.delayMs = delayMs;
+    rt.activeText = frameRow.active_text;
+  }
   if (frameRow.active_kind === "gallery" && frameRow.active_gallery_id != null) {
     const row = db
       .prepare("SELECT * FROM animations WHERE id = ? AND frame_id = ?")
@@ -356,13 +503,13 @@ function loadFrameRuntime(frameRow) {
 
 // Persist the new selection + bumped id, then wake this frame's long-pollers.
 // anim_seq is written BEFORE waking waiters so a crash can't lose the bump.
-function bumpFrame(slug, kind, presetKey, galleryId) {
+function bumpFrame(slug, kind, presetKey, galleryId, text = null) {
   const rt = runtimes.get(slug);
   rt.animId += 1;
   db.prepare(
-    `UPDATE frames SET anim_seq = ?, active_kind = ?, active_preset_key = ?, active_gallery_id = ?
+    `UPDATE frames SET anim_seq = ?, active_kind = ?, active_preset_key = ?, active_gallery_id = ?, active_text = ?
      WHERE slug = ?`
-  ).run(rt.animId, kind, presetKey, galleryId, slug);
+  ).run(rt.animId, kind, presetKey, galleryId, text, slug);
   for (const wake of rt.pollWaiters) wake();
   rt.pollWaiters = [];
 }
@@ -373,6 +520,7 @@ function setFramePreset(slug, presetKey) {
   rt.delayMs = presets[presetKey].delayMs;
   rt.activePresetKey = presetKey;
   rt.activeGalleryId = null;
+  rt.activeText = null;
   bumpFrame(slug, "preset", presetKey, null);
 }
 
@@ -382,7 +530,19 @@ function setFrameGallery(slug, row) {
   rt.delayMs = row.delay_ms;
   rt.activePresetKey = null;
   rt.activeGalleryId = row.id;
+  rt.activeText = null;
   bumpFrame(slug, "gallery", null, row.id);
+}
+
+function setFrameText(slug, text) {
+  const rt = runtimes.get(slug);
+  const { frames, delayMs } = renderMarqueeFrames(text);
+  rt.frames = rgbToBuffers(frames);
+  rt.delayMs = delayMs;
+  rt.activePresetKey = null;
+  rt.activeGalleryId = null;
+  rt.activeText = text;
+  bumpFrame(slug, "text", null, null, text);
 }
 
 // ── First-run migration: seed a default frame and attach the legacy gallery ───
@@ -766,6 +926,7 @@ app.get("/api/frames", requireAuth, (req, res) => {
         kind: f.active_kind,
         presetKey: f.active_preset_key,
         galleryId: f.active_gallery_id,
+        text: f.active_text,
       },
     }))
   );
@@ -881,6 +1042,18 @@ app.delete("/api/frames/:id/gallery/:gid", requireFrameAccess, (req, res) => {
     setFramePreset(req.frame.slug, DEFAULT_PRESET_KEY);
   }
   res.json({ deleted: true });
+});
+
+// Show a scrolling text message on this frame (no AI involved). Used by the
+// web remote's `say "hello world"` command.
+app.post("/api/frames/:id/say", requireFrameAccess, (req, res) => {
+  const text = parseSayText(req.body?.text);
+  if (!text) return res.status(400).json({ error: "text is required" });
+  if (text.length > MAX_TEXT_LENGTH) {
+    return res.status(400).json({ error: `text too long (max ${MAX_TEXT_LENGTH} chars)` });
+  }
+  setFrameText(req.frame.slug, text);
+  res.json({ ok: true, text });
 });
 
 // Make a preset the live animation on this frame
@@ -1011,6 +1184,36 @@ app.delete("/api/admin/users/:id", requireAdmin, (req, res) => {
   res.json({ deleted: true });
 });
 
+// ── Admin: service tokens (machine credentials for the programmatic API) ─────
+// A service token is a bearer credential minted by the admin for headless
+// callers (scripts, cron jobs, other servers) that have no Google account.
+// Tokens can address any frame; revoke by deleting.
+
+app.get("/api/admin/tokens", requireAdmin, (req, res) => {
+  res.json(
+    db
+      .prepare("SELECT id, name, token, created_at FROM service_tokens ORDER BY id")
+      .all()
+      .map((t) => ({ id: t.id, name: t.name, token: t.token, createdAt: t.created_at }))
+  );
+});
+
+app.post("/api/admin/tokens", requireAdmin, (req, res) => {
+  const name = (req.body?.name ?? "").trim().slice(0, 60);
+  if (!name) return res.status(400).json({ error: "name is required" });
+  const token = "svc_" + crypto.randomBytes(24).toString("hex");
+  const info = db
+    .prepare("INSERT INTO service_tokens (name, token, token_hash) VALUES (?, ?, ?)")
+    .run(name, token, sha256(token));
+  res.json({ id: info.lastInsertRowid, name, token });
+});
+
+app.delete("/api/admin/tokens/:id", requireAdmin, (req, res) => {
+  const info = db.prepare("DELETE FROM service_tokens WHERE id = ?").run(req.params.id);
+  if (info.changes === 0) return res.status(404).json({ error: "not found" });
+  res.json({ deleted: true });
+});
+
 app.post("/api/admin/access", requireAdmin, (req, res) => {
   const { userId, frameId } = req.body ?? {};
   if (!userId || !frameId) {
@@ -1040,6 +1243,48 @@ app.delete("/api/admin/access", requireAdmin, (req, res) => {
     frameId
   );
   res.json({ ok: true });
+});
+
+// ── Programmatic API (service-token auth; no Google account needed) ──────────
+
+// Authenticate `Authorization: Bearer svc_...`; sends the error response and
+// returns null on failure, otherwise the token row.
+function authService(req, res) {
+  const header = req.get("Authorization") ?? "";
+  const token = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
+  if (!token) {
+    res.status(401).json({ error: "Authorization: Bearer <service token> required" });
+    return null;
+  }
+  const row = db
+    .prepare("SELECT * FROM service_tokens WHERE token_hash = ?")
+    .get(sha256(token));
+  if (!row) {
+    res.status(401).json({ error: "invalid service token" });
+    return null;
+  }
+  return row;
+}
+
+// Show a scrolling text message on a frame, addressed by slug (or name).
+//   curl -X POST https://.../api/say \
+//     -H "Authorization: Bearer svc_..." -H "Content-Type: application/json" \
+//     -d '{"frame": "living-room", "text": "hello world"}'
+app.post("/api/say", (req, res) => {
+  if (!authService(req, res)) return;
+  const ref = (req.body?.frame ?? "").trim();
+  if (!ref) return res.status(400).json({ error: "frame is required (slug or name)" });
+  const frame =
+    db.prepare("SELECT * FROM frames WHERE slug = ?").get(ref) ??
+    db.prepare("SELECT * FROM frames WHERE lower(name) = lower(?)").get(ref);
+  if (!frame) return res.status(404).json({ error: "unknown frame" });
+  const text = parseSayText(req.body?.text);
+  if (!text) return res.status(400).json({ error: "text is required" });
+  if (text.length > MAX_TEXT_LENGTH) {
+    return res.status(400).json({ error: `text too long (max ${MAX_TEXT_LENGTH} chars)` });
+  }
+  setFrameText(frame.slug, text);
+  res.json({ ok: true, frame: frame.slug, text });
 });
 
 // ── Device protocol (no cookie; identified by ?frame=SLUG + X-Frame-Key) ──────

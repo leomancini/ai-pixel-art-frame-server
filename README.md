@@ -61,6 +61,33 @@ origin.
 3. **Add a person** by email, then tick the frames they may control.
 4. Each user signs in and controls their frames; the admin controls all.
 
+## Text messages (marquee)
+
+Type `say hello world` (or `say "hello world"`) in the prompt box and the
+frame shows the message as scrolling marquee text instead of generating art —
+no AI involved. The server rasterizes the text (5×7 font at 2×, white on
+black) into a normal looping animation, so **no firmware changes** are needed.
+Messages are capped at 100 characters; the firmware's 64-frame budget means
+longer messages scroll more pixels per step. The message persists across
+server restarts like any other active selection; picking a preset or gallery
+animation replaces it.
+
+### Programmatic API
+
+Headless callers (scripts, cron, other servers) can send text without a Google
+account using a **service token**, minted in the Admin tab under *Service
+tokens*:
+
+```sh
+curl -X POST https://ai-pixel-art-frame.leo.gd/api/say \
+  -H "Authorization: Bearer svc_..." \
+  -H "Content-Type: application/json" \
+  -d '{"frame": "living-room", "text": "hello world"}'
+```
+
+`frame` is the slug (or the frame's name). Revoke a token by deleting it in
+the Admin tab.
+
 ## Deploying
 
 `git push` triggers the GitHub Action that pushes to the DreamCompute VPS,

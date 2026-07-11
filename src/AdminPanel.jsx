@@ -134,17 +134,25 @@ function AdminFrameName({ frame, onSaved }) {
 export default function AdminPanel({ onFramesChanged, onReady }) {
   const [frames, setFrames] = useState([]);
   const [users, setUsers] = useState([]);
+  const [tokens, setTokens] = useState([]);
   const [loaded, setLoaded] = useState(false);
   const [frameName, setFrameName] = useState("");
   const [userEmail, setUserEmail] = useState("");
+  const [tokenName, setTokenName] = useState("");
   const [newKey, setNewKey] = useState(null); // { slug, name, deviceKey }
+  const [shownToken, setShownToken] = useState(null); // { name, token }
   const [err, setErr] = useState("");
 
   const load = () => {
-    Promise.all([api.get("/api/admin/frames"), api.get("/api/admin/users")])
-      .then(([fr, us]) => {
+    Promise.all([
+      api.get("/api/admin/frames"),
+      api.get("/api/admin/users"),
+      api.get("/api/admin/tokens"),
+    ])
+      .then(([fr, us, tk]) => {
         setFrames(fr);
         setUsers(us);
+        setTokens(tk);
         setLoaded(true);
         onReady?.();
       })
@@ -195,6 +203,27 @@ export default function AdminPanel({ onFramesChanged, onReady }) {
   const deleteUser = async (u) => {
     if (!window.confirm(`Remove ${u.email}?`)) return;
     await api.del(`/api/admin/users/${u.id}`);
+    load();
+  };
+
+  const addToken = async (e) => {
+    e.preventDefault();
+    if (!tokenName.trim()) return;
+    setErr("");
+    try {
+      const t = await api.post("/api/admin/tokens", { name: tokenName.trim() });
+      setShownToken(t);
+      setTokenName("");
+      load();
+    } catch (e) {
+      setErr(e.message);
+    }
+  };
+
+  const deleteToken = async (t) => {
+    if (!window.confirm(`Revoke "${t.name}"? Anything using this token stops working.`)) return;
+    await api.del(`/api/admin/tokens/${t.id}`);
+    if (shownToken?.token === t.token) setShownToken(null);
     load();
   };
 
@@ -316,6 +345,48 @@ export default function AdminPanel({ onFramesChanged, onReady }) {
             type="email"
           />
           <Button type="submit" disabled={!userEmail.trim()}>
+            Add
+          </Button>
+        </AddForm>
+      </Section>
+
+      <Section>
+        <SectionTitle>Service tokens</SectionTitle>
+        <Muted>
+          Bearer tokens for the programmatic API — e.g.{" "}
+          <code>POST /api/say</code> with{" "}
+          <code>{'{"frame": "slug", "text": "hello"}'}</code>.
+        </Muted>
+        {shownToken && (
+          <KeyBox>
+            Token for <b>{shownToken.name}</b> — send it as{" "}
+            <code>Authorization: Bearer …</code>:
+            <br />
+            {shownToken.token}
+            <div style={{ marginTop: 8 }}>
+              <GhostButton onClick={() => setShownToken(null)}>Done</GhostButton>
+            </div>
+          </KeyBox>
+        )}
+        {tokens.map((t) => (
+          <Item key={t.id}>
+            <Grow>
+              {t.name}
+              <Sep>/</Sep>
+              <Sub>…{t.token.slice(-6)}</Sub>
+            </Grow>
+            <GreyButton onClick={() => setShownToken(t)}>Show</GreyButton>
+            <DangerButton onClick={() => deleteToken(t)}>Delete</DangerButton>
+          </Item>
+        ))}
+        <AddForm onSubmit={addToken}>
+          <Input
+            value={tokenName}
+            onChange={(e) => setTokenName(e.target.value)}
+            placeholder="name (what will use it)"
+            maxLength={60}
+          />
+          <Button type="submit" disabled={!tokenName.trim()}>
             Add
           </Button>
         </AddForm>
