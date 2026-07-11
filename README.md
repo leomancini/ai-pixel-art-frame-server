@@ -67,10 +67,10 @@ Type `say hello world` (or `say "hello world"`) in the prompt box and the
 frame shows the message as scrolling marquee text instead of generating art —
 no AI involved. The server rasterizes the text (5×7 font at 2×, white on
 black) into a normal looping animation, so **no firmware changes** are needed.
-Messages are capped at 100 characters; the firmware's 64-frame budget means
-longer messages scroll more pixels per step. The message persists across
-server restarts like any other active selection; picking a preset or gallery
-animation replaces it.
+The message is **saved to the frame's gallery** like a generated animation —
+same preview card, tap to reshow, long-press to delete; saying the same text
+again reuses its existing card. Messages are capped at 100 characters; the
+firmware's 64-frame budget means longer messages scroll more pixels per step.
 
 ### Programmatic API
 
@@ -85,8 +85,11 @@ curl -X POST https://ai-pixel-art-frame.leo.gd/api/say \
   -d '{"frame": "living-room", "text": "hello world"}'
 ```
 
-`frame` is the slug (or the frame's name). Revoke a token by deleting it in
-the Admin tab.
+`frame` is the slug (or the frame's name). API messages are **transient** by
+default — shown on the frame (and as a live card in the remote) but not added
+to the gallery, so frequent senders don't flood it. Pass `"save": true` to
+also keep the message in the gallery. Revoke a token by deleting it in the
+Admin tab.
 
 ## Deploying
 

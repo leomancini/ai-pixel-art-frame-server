@@ -901,6 +901,19 @@ app.get("/api/presets/:key", requireAuth, (req, res) => {
   res.json({ frames: preset.frames, delayMs: preset.delayMs });
 });
 
+// Rendered marquee frames for a text message, so the remote can preview it
+// exactly as the physical frame plays it. Stateless — same text, same frames.
+app.get("/api/text-preview", requireAuth, (req, res) => {
+  const text = parseSayText(req.query.text);
+  if (!text) return res.status(400).json({ error: "text is required" });
+  if (text.length > MAX_TEXT_LENGTH) {
+    return res.status(400).json({ error: `text too long (max ${MAX_TEXT_LENGTH} chars)` });
+  }
+  const { frames, delayMs } = renderMarqueeFrames(text);
+  res.set("Cache-Control", "max-age=3600"); // deterministic per text
+  res.json({ frames, delayMs });
+});
+
 // ── Frame-scoped control endpoints ────────────────────────────────────────────
 
 // Frames the signed-in user may control (admins see all).
@@ -1044,16 +1057,42 @@ app.delete("/api/frames/:id/gallery/:gid", requireFrameAccess, (req, res) => {
   res.json({ deleted: true });
 });
 
+// Save a rendered text message into a frame's gallery so it can be reshown
+// later, exactly like an AI animation. code='marquee' marks the row as a text
+// message; saying the same text again reuses its existing card.
+function saveTextAnimation(frameId, text) {
+  const prior = db
+    .prepare("SELECT * FROM animations WHERE frame_id = ? AND code = 'marquee' AND name = ?")
+    .get(frameId, text);
+  if (prior) return { row: prior, existing: true };
+  const { frames, delayMs } = renderMarqueeFrames(text);
+  const row = db
+    .prepare(
+      `INSERT INTO animations (prompt, name, code, frame_count, delay_ms, frames, frame_id)
+       VALUES (?, ?, 'marquee', ?, ?, ?, ?) RETURNING *`
+    )
+    .get(`say ${text}`, text, frames.length, delayMs, Buffer.from(frames.flat()), frameId);
+  return { row, existing: false };
+}
+
 // Show a scrolling text message on this frame (no AI involved). Used by the
-// web remote's `say "hello world"` command.
+// web remote's `say "hello world"` command. The message is saved to the
+// frame's gallery (like a generated animation) and activated.
 app.post("/api/frames/:id/say", requireFrameAccess, (req, res) => {
   const text = parseSayText(req.body?.text);
   if (!text) return res.status(400).json({ error: "text is required" });
   if (text.length > MAX_TEXT_LENGTH) {
     return res.status(400).json({ error: `text too long (max ${MAX_TEXT_LENGTH} chars)` });
   }
-  setFrameText(req.frame.slug, text);
-  res.json({ ok: true, text });
+  const { row, existing } = saveTextAnimation(req.frame.id, text);
+  setFrameGallery(req.frame.slug, row);
+  res.json({
+    id: row.id,
+    name: row.name,
+    frameCount: row.frame_count,
+    delayMs: row.delay_ms,
+    existing,
+  });
 });
 
 // Make a preset the live animation on this frame
@@ -1270,6 +1309,9 @@ function authService(req, res) {
 //   curl -X POST https://.../api/say \
 //     -H "Authorization: Bearer svc_..." -H "Content-Type: application/json" \
 //     -d '{"frame": "living-room", "text": "hello world"}'
+// By default the message is transient (nothing added to the gallery, so
+// frequent senders don't flood it); pass "save": true to also keep it in the
+// frame's gallery like a message sent from the web remote.
 app.post("/api/say", (req, res) => {
   if (!authService(req, res)) return;
   const ref = (req.body?.frame ?? "").trim();
@@ -1282,6 +1324,11 @@ app.post("/api/say", (req, res) => {
   if (!text) return res.status(400).json({ error: "text is required" });
   if (text.length > MAX_TEXT_LENGTH) {
     return res.status(400).json({ error: `text too long (max ${MAX_TEXT_LENGTH} chars)` });
+  }
+  if (req.body?.save === true) {
+    const { row } = saveTextAnimation(frame.id, text);
+    setFrameGallery(frame.slug, row);
+    return res.json({ ok: true, frame: frame.slug, text, id: row.id, saved: true });
   }
   setFrameText(frame.slug, text);
   res.json({ ok: true, frame: frame.slug, text });

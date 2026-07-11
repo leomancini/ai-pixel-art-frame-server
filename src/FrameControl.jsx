@@ -273,24 +273,9 @@ export default function FrameControl({ frame, refresh }) {
     if (!text || busy) return;
 
     // `say hello world` / `say "hello world"` — scroll the text as a marquee
-    // on the frame, no AI generation involved.
+    // on the frame (no AI). Saved to the gallery like any generated animation,
+    // so it gets the same card flow below.
     const say = text.match(/^say\s+([\s\S]+)$/i);
-    if (say) {
-      setPhase("loading");
-      setError(false);
-      setStatus("");
-      setPrompt("");
-      try {
-        const data = await api.post(`/api/frames/${frame.id}/say`, { text: say[1] });
-        refresh(); // the frame's active selection is now the message
-        setStatus(`Now showing “${data.text}”`);
-      } catch (err) {
-        setError(true);
-        setStatus(err.message);
-      }
-      setPhase("idle");
-      return;
-    }
 
     setPhase("loading");
     setError(false);
@@ -299,10 +284,18 @@ export default function FrameControl({ frame, refresh }) {
     // Hold the front cell with a pending placeholder so the grid never reflows.
     setGallery((g) => [{ pending: true }, ...g]);
     try {
-      const data = await api.post(`/api/frames/${frame.id}/generate`, {
-        prompt: text,
-      });
+      const data = say
+        ? await api.post(`/api/frames/${frame.id}/say`, { text: say[1] })
+        : await api.post(`/api/frames/${frame.id}/generate`, { prompt: text });
       refresh(); // server activated the new animation (updates selection)
+      if (data.existing) {
+        // Re-saying a saved message re-activates its existing card — drop the
+        // placeholder instead of adding a duplicate.
+        setGallery((g) => g.filter((it) => !it.pending));
+        setPhase("idle");
+        loadLists();
+        return;
+      }
       setPhase("out"); // fade the placeholder out (in place — no reflow)
       setTimeout(() => {
         // Swap the placeholder for the real card in the SAME cell; it fades in.
@@ -366,6 +359,14 @@ export default function FrameControl({ frame, refresh }) {
       {status && <Status $error={error}>{status}</Status>}
 
       <Row>
+        {active.kind === "text" && active.text && (
+          <Card as="div" $active>
+            <AnimPreview
+              src={`/api/text-preview?text=${encodeURIComponent(active.text)}`}
+            />
+            <Name $active>{active.text}</Name>
+          </Card>
+        )}
         {gallery.map((g) =>
           g.pending ? (
             <PendingCell key="pending" $out={phase === "out"}>
