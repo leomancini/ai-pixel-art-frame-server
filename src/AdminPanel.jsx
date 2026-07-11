@@ -322,10 +322,12 @@ export default function AdminPanel({ onFramesChanged, onReady }) {
                     e.target.blur();
                   }}
                 >
-                  <option value="">No frame</option>
+                  {/* Native <option> popups are OS-rendered and ignore the app's
+                      text-transform CSS — uppercase the text itself. */}
+                  <option value="">NO FRAME</option>
                   {frames.map((f) => (
                     <option key={f.id} value={f.id}>
-                      {f.name}
+                      {f.name.toUpperCase()}
                     </option>
                   ))}
                 </Select>
