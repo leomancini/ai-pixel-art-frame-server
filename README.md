@@ -61,6 +61,26 @@ origin.
 3. **Add a person** by email, then tick the frames they may control.
 4. Each user signs in and controls their frames; the admin controls all.
 
+## Public link mode (QR codes for a show)
+
+Every frame has a permanent secret link:
+
+```
+https://ai-pixel-art-frame.leo.gd/f/<slug>?key=<key>
+```
+
+It's shown under the frame in the Admin tab (with a copy button) and never
+changes, so you can make QR codes from it ahead of time. The **Public: on/off**
+button next to it controls whether the link currently works. While it's on,
+anyone who opens it — no sign-in — gets the normal control page for that one
+frame: generate animations, send `say` text, and pick what's showing. Visitors
+**can't** delete gallery items, rename the frame, or touch API keys, and a key
+unlocks only its own frame. While it's off the page shows "This link isn't
+active." Public mode is off by default.
+
+The key rides along on each API call as an `X-Public-Key` header, so nothing
+about the signed-in app changes.
+
 ## Text messages (marquee)
 
 Type `say hello world` (or `say "hello world"`) in the prompt box and the

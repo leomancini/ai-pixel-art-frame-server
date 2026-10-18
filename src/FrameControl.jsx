@@ -227,7 +227,8 @@ function useIsMobile() {
 
 // Generate + gallery + preset picker for a single frame. `frame` carries the
 // active selection; `refresh` reloads the frame list so highlights stay live.
-export default function FrameControl({ frame, refresh }) {
+// `publicMode` is the QR-code visitor view: same controls, but no deleting.
+export default function FrameControl({ frame, refresh, publicMode = false }) {
   const isMobile = useIsMobile();
   const [gallery, setGallery] = useState([]);
   const [presets, setPresets] = useState([]);
@@ -330,6 +331,7 @@ export default function FrameControl({ frame, refresh }) {
   };
 
   const remove = async (id, name) => {
+    if (publicMode) return; // visitors can't delete anyone's art
     if (!window.confirm(`Are you sure you want to delete ${name.toUpperCase()}?`)) return;
     await api.del(`/api/frames/${frame.id}/gallery/${id}`);
     loadLists();

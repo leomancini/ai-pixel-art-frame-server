@@ -97,6 +97,61 @@ const KeyBox = styled.div`
   user-select: text;
 `;
 
+// A frame's public link, shown under its row. The URL is permanent (the key
+// never changes) so QR codes can be made ahead of time; the toggle only
+// controls whether the link currently works.
+const PublicRow = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: -4px 0 8px;
+  @media (max-width: 640px) {
+    flex-direction: column;
+    align-items: stretch;
+  }
+`;
+
+const PublicUrl = styled.div`
+  flex: 1;
+  min-width: 0;
+  font-size: 20px;
+  color: ${(p) => (p.$on ? "#ccc" : "#555")};
+  /* The key is case-sensitive — show it as it really is, not uppercased. */
+  text-transform: none;
+  word-break: break-all;
+  -webkit-user-select: text;
+  user-select: text;
+`;
+
+const publicUrlFor = (f) =>
+  `${window.location.origin}/f/${encodeURIComponent(f.slug)}?key=${encodeURIComponent(
+    f.publicKey
+  )}`;
+
+function PublicLink({ frame, onToggle }) {
+  const url = publicUrlFor(frame);
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* clipboard unavailable — the URL is selectable text anyway */
+    }
+  };
+  return (
+    <PublicRow>
+      <PublicUrl $on={frame.publicEnabled}>{url}</PublicUrl>
+      <GreyButton onClick={copy}>{copied ? "Copied" : "Copy link"}</GreyButton>
+      {frame.publicEnabled ? (
+        <DangerButton onClick={onToggle}>Public: on</DangerButton>
+      ) : (
+        <GreyButton onClick={onToggle}>Public: off</GreyButton>
+      )}
+    </PublicRow>
+  );
+}
 
 // Lets an admin rename any frame (not just ones they can access). Auto-saves
 // (debounced) as they type, mirroring FrameName in App.jsx.
@@ -178,6 +233,18 @@ export default function AdminPanel({ onFramesChanged, onReady }) {
   const rotateKey = async (f) => {
     if (!window.confirm(`Rotate the device key for "${f.name}"? The old key stops working.`)) return;
     setNewKey(await api.post(`/api/admin/frames/${f.id}/key`));
+  };
+
+  // Public link: anyone with the frame's (permanent) link controls it, no
+  // account needed, while this is on. Toggling never changes the link.
+  const togglePublic = async (f) => {
+    setErr("");
+    try {
+      await api.patch(`/api/admin/frames/${f.id}/public`, { enabled: !f.publicEnabled });
+      load();
+    } catch (e) {
+      setErr(e.message);
+    }
   };
 
   const deleteFrame = async (f) => {
@@ -263,27 +330,36 @@ export default function AdminPanel({ onFramesChanged, onReady }) {
           </KeyBox>
         )}
         {frames.map((f) => (
-          <Item key={f.id}>
-            <Grow>
-              <AdminFrameName
-                frame={f}
-                onSaved={() => {
-                  load();
-                  onFramesChanged?.();
-                }}
-              />
-              <Sep>/</Sep>
-              <Sub>{f.slug}</Sub>
-              {f.hasApiKey && (
-                <>
-                  <Sep>/</Sep>
-                  <Sub>own key</Sub>
-                </>
-              )}
-            </Grow>
-            <GreyButton onClick={() => rotateKey(f)}>Rotate key</GreyButton>
-            <DangerButton onClick={() => deleteFrame(f)}>Delete</DangerButton>
-          </Item>
+          <React.Fragment key={f.id}>
+            <Item>
+              <Grow>
+                <AdminFrameName
+                  frame={f}
+                  onSaved={() => {
+                    load();
+                    onFramesChanged?.();
+                  }}
+                />
+                <Sep>/</Sep>
+                <Sub>{f.slug}</Sub>
+                {f.hasApiKey && (
+                  <>
+                    <Sep>/</Sep>
+                    <Sub>own key</Sub>
+                  </>
+                )}
+                {f.publicEnabled && (
+                  <>
+                    <Sep>/</Sep>
+                    <Sub>public</Sub>
+                  </>
+                )}
+              </Grow>
+              <GreyButton onClick={() => rotateKey(f)}>Rotate key</GreyButton>
+              <DangerButton onClick={() => deleteFrame(f)}>Delete</DangerButton>
+            </Item>
+            <PublicLink frame={f} onToggle={() => togglePublic(f)} />
+          </React.Fragment>
         ))}
         <AddForm onSubmit={addFrame}>
           <Input

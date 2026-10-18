@@ -5,6 +5,7 @@ import { Page, Centered, Muted, Input, Header, DangerButton } from "./ui";
 import Login from "./Login";
 import FrameControl from "./FrameControl";
 import AdminPanel from "./AdminPanel";
+import PublicFrame, { parsePublicRoute } from "./PublicFrame";
 
 const Settings = styled.div`
   display: flex;
@@ -521,6 +522,11 @@ function Main({ user }) {
 }
 
 export default function App() {
+  // /f/<slug>?key=… is the no-login public page (QR-code visitors). Decided once
+  // at load; it never shares state with the signed-in app.
+  const [publicRoute] = useState(() =>
+    parsePublicRoute(window.location.pathname, window.location.search)
+  );
   const [user, setUser] = useState(undefined); // undefined = loading, null = signed out
   const [fontReady, setFontReady] = useState(false);
 
@@ -534,9 +540,10 @@ export default function App() {
     loadMe();
   }, [loadMe]);
   useEffect(() => {
+    if (publicRoute) return; // the public page has no session to load
     setUnauthorizedHandler(() => setUser(null));
     loadMe();
-  }, [loadMe]);
+  }, [loadMe, publicRoute]);
 
   // Don't render any text until the pixel font is loaded (avoids a fallback flash).
   useEffect(() => {
@@ -556,10 +563,9 @@ export default function App() {
     };
   }, []);
 
-  if (!fontReady || user === undefined) {
-    // Plain black page until the font is loaded and we know the auth state.
-    return <Centered />;
-  }
+  if (!fontReady) return <Centered />; // plain black until the font is loaded
+  if (publicRoute) return <PublicFrame route={publicRoute} />;
+  if (user === undefined) return <Centered />; // …and until we know the auth state
   if (!user) return <Login onSignedIn={onSignedIn} />;
   return <Main user={user} />;
 }
