@@ -142,6 +142,17 @@ if (!hasActiveText) {
   db.exec("ALTER TABLE frames ADD COLUMN active_text TEXT");
 }
 
+// Public link mode: when non-NULL, anyone holding this key may control the
+// frame from a secret URL (/f/<slug>?key=…) without signing in — meant for QR
+// codes next to frames at a public show. NULL = off. Admin-toggled per frame.
+const hasPublicKey = db
+  .prepare("PRAGMA table_info(frames)")
+  .all()
+  .some((c) => c.name === "public_key");
+if (!hasPublicKey) {
+  db.exec("ALTER TABLE frames ADD COLUMN public_key TEXT");
+}
+
 const sha256 = (s) => crypto.createHash("sha256").update(s).digest("hex");
 
 // Seed the admin user so they can sign in even before being pre-provisioned.
@@ -738,10 +749,64 @@ function requireAdmin(req, res, next) {
   });
 }
 
-// Resolves :id to a frame and checks the signed-in user may control it.
+// ── Public link mode ─────────────────────────────────────────────────────────
+// The admin can switch a frame to "public": it gets a random key, and anyone
+// opening /f/<slug>?key=<key> (e.g. by scanning a QR code at a show) can
+// control that one frame with no account. The SPA sends the key on every API
+// call as an X-Public-Key header. Public visitors can generate, say text, and
+// pick what's showing — but not delete, rename, or change API keys.
+
+const PUBLIC_KEY_HEADER = "X-Public-Key";
+
+const newPublicKey = () => crypto.randomBytes(12).toString("base64url"); // 16 url-safe chars
+
+function keyMatches(given, expected) {
+  if (!given || !expected) return false;
+  const a = Buffer.from(given);
+  const b = Buffer.from(expected);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+// The key the request carries, if any (empty string when absent).
+const publicKeyOf = (req) => (req.get(PUBLIC_KEY_HEADER) ?? "").trim();
+
+// True when the request's public key unlocks this frame.
+function publicKeyUnlocks(req, frame) {
+  return keyMatches(publicKeyOf(req), frame.public_key);
+}
+
+// True when the request's public key unlocks ANY frame — enough for the
+// frame-independent endpoints (presets, text preview).
+function publicKeyUnlocksAny(req) {
+  const key = publicKeyOf(req);
+  if (!key) return false;
+  return db
+    .prepare("SELECT public_key FROM frames WHERE public_key IS NOT NULL")
+    .all()
+    .some((f) => keyMatches(key, f.public_key));
+}
+
+// Like requireAuth, but a valid public key is also accepted. Sets req.user for
+// signed-in callers; public callers get req.public = true and no req.user.
+function requireAuthOrPublic(req, res, next) {
+  if (publicKeyUnlocksAny(req)) {
+    req.public = true;
+    return next();
+  }
+  requireAuth(req, res, next);
+}
+
+// Resolves :id to a frame and checks the caller may control it: either the
+// request carries that frame's public key (req.public = true), or the signed-in
+// user has access (admins always do).
 function requireFrameAccess(req, res, next) {
+  const frame = db.prepare("SELECT * FROM frames WHERE id = ?").get(req.params.id);
+  if (frame && publicKeyUnlocks(req, frame)) {
+    req.frame = frame;
+    req.public = true;
+    return next();
+  }
   requireAuth(req, res, () => {
-    const frame = db.prepare("SELECT * FROM frames WHERE id = ?").get(req.params.id);
     if (!frame) return res.status(404).json({ error: "frame not found" });
     if (!req.user.isAdmin) {
       const has = db
@@ -752,6 +817,13 @@ function requireFrameAccess(req, res, next) {
     req.frame = frame;
     next();
   });
+}
+
+// For the frame endpoints public visitors must NOT reach (delete, rename, API
+// key). Chain after requireFrameAccess.
+function forbidPublic(req, res, next) {
+  if (req.public) return res.status(403).json({ error: "not available from a public link" });
+  next();
 }
 
 // Public config the SPA needs before sign-in
@@ -883,7 +955,7 @@ app.get("/api/me", (req, res) => {
 
 // ── Shared preset endpoints (frame-independent data; activation is per frame) ──
 
-app.get("/api/presets", requireAuth, (req, res) => {
+app.get("/api/presets", requireAuthOrPublic, (req, res) => {
   res.json(
     Object.entries(presets).map(([key, p]) => ({
       key,
@@ -894,7 +966,7 @@ app.get("/api/presets", requireAuth, (req, res) => {
   );
 });
 
-app.get("/api/presets/:key", requireAuth, (req, res) => {
+app.get("/api/presets/:key", requireAuthOrPublic, (req, res) => {
   const preset = presets[req.params.key];
   if (!preset) return res.status(404).json({ error: "unknown preset" });
   res.set("Cache-Control", "max-age=3600"); // presets are static
@@ -903,7 +975,7 @@ app.get("/api/presets/:key", requireAuth, (req, res) => {
 
 // Rendered marquee frames for a text message, so the remote can preview it
 // exactly as the physical frame plays it. Stateless — same text, same frames.
-app.get("/api/text-preview", requireAuth, (req, res) => {
+app.get("/api/text-preview", requireAuthOrPublic, (req, res) => {
   const text = parseSayText(req.query.text);
   if (!text) return res.status(400).json({ error: "text is required" });
   if (text.length > MAX_TEXT_LENGTH) {
@@ -914,7 +986,38 @@ app.get("/api/text-preview", requireAuth, (req, res) => {
   res.json({ frames, delayMs });
 });
 
+// What a public visitor's page needs about its frame: id (for the frame-scoped
+// endpoints), name, and what's showing. 404 unless the key in X-Public-Key
+// matches this slug's current public key — so a stale QR code (public mode off
+// or key rotated) reads the same as a wrong one.
+app.get("/api/public/frames/:slug", (req, res) => {
+  const frame = db.prepare("SELECT * FROM frames WHERE slug = ?").get(req.params.slug);
+  if (!frame || !publicKeyUnlocks(req, frame)) {
+    return res.status(404).json({ error: "this link isn't active" });
+  }
+  res.set("Cache-Control", "no-store");
+  res.json(framePayload(frame));
+});
+
 // ── Frame-scoped control endpoints ────────────────────────────────────────────
+
+// The frame shape the control UI consumes (shared by /api/frames and the
+// public page). Never exposes stored keys — just whether one is set and a hint.
+function framePayload(f) {
+  return {
+    id: f.id,
+    slug: f.slug,
+    name: f.name,
+    hasApiKey: !!f.anthropic_api_key,
+    apiKeyHint: f.anthropic_api_key ? f.anthropic_api_key.slice(-4) : null,
+    active: {
+      kind: f.active_kind,
+      presetKey: f.active_preset_key,
+      galleryId: f.active_gallery_id,
+      text: f.active_text,
+    },
+  };
+}
 
 // Frames the signed-in user may control (admins see all).
 app.get("/api/frames", requireAuth, (req, res) => {
@@ -927,27 +1030,12 @@ app.get("/api/frames", requireAuth, (req, res) => {
            WHERE a.user_id = ? ORDER BY f.name`
         )
         .all(req.user.uid);
-  res.json(
-    frames.map((f) => ({
-      id: f.id,
-      slug: f.slug,
-      name: f.name,
-      // Never expose the stored key itself — just whether one is set and a hint.
-      hasApiKey: !!f.anthropic_api_key,
-      apiKeyHint: f.anthropic_api_key ? f.anthropic_api_key.slice(-4) : null,
-      active: {
-        kind: f.active_kind,
-        presetKey: f.active_preset_key,
-        galleryId: f.active_gallery_id,
-        text: f.active_text,
-      },
-    }))
-  );
+  res.json(frames.map(framePayload));
 });
 
 // A user can rename a frame they can access. This is just the display label —
 // the firmware identifies the board by its immutable slug, so renaming is safe.
-app.patch("/api/frames/:id/name", requireFrameAccess, (req, res) => {
+app.patch("/api/frames/:id/name", requireFrameAccess, forbidPublic, (req, res) => {
   const name = (req.body?.name ?? "").trim().slice(0, 60);
   if (!name) return res.status(400).json({ error: "name is required" });
   db.prepare("UPDATE frames SET name = ? WHERE id = ?").run(name, req.frame.id);
@@ -958,7 +1046,7 @@ app.patch("/api/frames/:id/name", requireFrameAccess, (req, res) => {
 // overrides the system key for that frame's generations only. The key is write-
 // only over the API — we return whether one is set and a 4-char hint, never the
 // stored value itself.
-app.patch("/api/frames/:id/api-key", requireFrameAccess, (req, res) => {
+app.patch("/api/frames/:id/api-key", requireFrameAccess, forbidPublic, (req, res) => {
   const key = (req.body?.apiKey ?? "").trim();
   if (!key) return res.status(400).json({ error: "apiKey is required" });
   if (!key.startsWith("sk-ant-")) {
@@ -969,7 +1057,7 @@ app.patch("/api/frames/:id/api-key", requireFrameAccess, (req, res) => {
   res.json({ ok: true, hasApiKey: true, apiKeyHint: key.slice(-4) });
 });
 
-app.delete("/api/frames/:id/api-key", requireFrameAccess, (req, res) => {
+app.delete("/api/frames/:id/api-key", requireFrameAccess, forbidPublic, (req, res) => {
   db.prepare("UPDATE frames SET anthropic_api_key = NULL WHERE id = ?").run(req.frame.id);
   res.json({ ok: true, hasApiKey: false });
 });
@@ -1045,7 +1133,7 @@ app.post("/api/frames/:id/gallery/:gid/activate", requireFrameAccess, (req, res)
 });
 
 // Remove a gallery animation (falls back to a preset if it was live)
-app.delete("/api/frames/:id/gallery/:gid", requireFrameAccess, (req, res) => {
+app.delete("/api/frames/:id/gallery/:gid", requireFrameAccess, forbidPublic, (req, res) => {
   const row = db
     .prepare("SELECT * FROM animations WHERE id = ? AND frame_id = ?")
     .get(req.params.gid, req.frame.id);
@@ -1123,8 +1211,28 @@ app.get("/api/admin/frames", requireAdmin, (req, res) => {
       name: f.name,
       createdAt: f.created_at,
       hasApiKey: !!f.anthropic_api_key,
+      publicKey: f.public_key, // null = public link mode off
     }))
   );
+});
+
+// Switch a frame's public link mode on (minting a key if it has none), or
+// mint a fresh key with { rotate: true } — old QR codes then stop working.
+// Returns the key; the admin UI builds the URL /f/<slug>?key=<key> from it.
+app.post("/api/admin/frames/:id/public", requireAdmin, (req, res) => {
+  const frame = db.prepare("SELECT * FROM frames WHERE id = ?").get(req.params.id);
+  if (!frame) return res.status(404).json({ error: "not found" });
+  const key = frame.public_key && req.body?.rotate !== true ? frame.public_key : newPublicKey();
+  db.prepare("UPDATE frames SET public_key = ? WHERE id = ?").run(key, frame.id);
+  res.json({ id: frame.id, slug: frame.slug, name: frame.name, publicKey: key });
+});
+
+// Switch public link mode off: the link (and any printed QR code) goes dead.
+app.delete("/api/admin/frames/:id/public", requireAdmin, (req, res) => {
+  const frame = db.prepare("SELECT * FROM frames WHERE id = ?").get(req.params.id);
+  if (!frame) return res.status(404).json({ error: "not found" });
+  db.prepare("UPDATE frames SET public_key = NULL WHERE id = ?").run(frame.id);
+  res.json({ ok: true, publicKey: null });
 });
 
 // Register a frame. Returns the plaintext device key ONCE (only the hash is

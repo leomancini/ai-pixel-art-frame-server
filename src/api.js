@@ -6,11 +6,21 @@ export function setUnauthorizedHandler(fn) {
   onUnauthorized = fn;
 }
 
+// Public link mode: the key from /f/<slug>?key=… is sent on every request as
+// X-Public-Key instead of a session cookie. Set once by the public page.
+let publicKey = null;
+export function setPublicKey(key) {
+  publicKey = key || null;
+}
+
 async function req(method, path, body) {
+  const headers = {};
+  if (body) headers["Content-Type"] = "application/json";
+  if (publicKey) headers["X-Public-Key"] = publicKey;
   const res = await fetch(path, {
     method,
     credentials: "same-origin",
-    headers: body ? { "Content-Type": "application/json" } : undefined,
+    headers,
     body: body ? JSON.stringify(body) : undefined,
   });
   if (res.status === 401) {
