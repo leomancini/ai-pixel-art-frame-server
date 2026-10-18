@@ -63,24 +63,23 @@ origin.
 
 ## Public link mode (QR codes for a show)
 
-For an open-to-the-public gallery, the admin can switch any frame to **public
-link mode** in the Admin tab (*Public link* button on the frame's row). The
-frame gets a random key and a secret URL:
+Every frame has a permanent secret link:
 
 ```
 https://ai-pixel-art-frame.leo.gd/f/<slug>?key=<key>
 ```
 
-Anyone who opens that link — by scanning the QR code shown next to it, which
-you can download as an SVG and print — gets the normal control page for that
-one frame with **no sign-in**: generate animations, send `say` text, and pick
-what's showing. Visitors **can't** delete gallery items, rename the frame, or
-touch API keys, and the key unlocks only its own frame. *New link* mints a
-fresh key (printed QR codes stop working); *Turn off* kills the link entirely
-and the page shows "This link isn't active."
+It's shown under the frame in the Admin tab (with a copy button) and never
+changes, so you can make QR codes from it ahead of time. The **Public: on/off**
+button next to it controls whether the link currently works. While it's on,
+anyone who opens it — no sign-in — gets the normal control page for that one
+frame: generate animations, send `say` text, and pick what's showing. Visitors
+**can't** delete gallery items, rename the frame, or touch API keys, and a key
+unlocks only its own frame. While it's off the page shows "This link isn't
+active." Public mode is off by default.
 
 The key rides along on each API call as an `X-Public-Key` header, so nothing
-about the signed-in app changes. Public mode is per frame and off by default.
+about the signed-in app changes.
 
 ## Text messages (marquee)
 
@@ -117,8 +116,7 @@ Admin tab.
 `git push` triggers the GitHub Action that pushes to the DreamCompute VPS,
 which builds and restarts the app. Two things the code push does **not** carry:
 
-- **New dependencies** (`google-auth-library`, `jsonwebtoken`, `cookie-parser`,
-  and `qrcode` for the public-link QR codes):
+- **New dependencies** (`google-auth-library`, `jsonwebtoken`, `cookie-parser`):
   the server must `npm install` after this change. If the post-receive hook
   doesn't already run it, SSH in once and run `npm install` in the app dir.
 - **Env vars:** set `ADMIN_EMAIL`, `GOOGLE_CLIENT_ID`, and `SESSION_SECRET` in

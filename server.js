@@ -142,18 +142,21 @@ if (!hasActiveText) {
   db.exec("ALTER TABLE frames ADD COLUMN active_text TEXT");
 }
 
-// Public link mode: when non-NULL, anyone holding this key may control the
-// frame from a secret URL (/f/<slug>?key=…) without signing in — meant for QR
-// codes next to frames at a public show. NULL = off. Admin-toggled per frame.
-const hasPublicKey = db
-  .prepare("PRAGMA table_info(frames)")
-  .all()
-  .some((c) => c.name === "public_key");
-if (!hasPublicKey) {
+// Public link mode: every frame has a permanent random public_key, giving it a
+// stable secret URL (/f/<slug>?key=…). While public_enabled is 1, anyone
+// holding that URL (e.g. from a QR code next to the frame at a show) controls
+// the frame without signing in. The admin toggles it per frame; the link never
+// changes, so QR codes can be printed ahead of time.
+const frameCols = db.prepare("PRAGMA table_info(frames)").all().map((c) => c.name);
+if (!frameCols.includes("public_key")) {
   db.exec("ALTER TABLE frames ADD COLUMN public_key TEXT");
+}
+if (!frameCols.includes("public_enabled")) {
+  db.exec("ALTER TABLE frames ADD COLUMN public_enabled INTEGER NOT NULL DEFAULT 0");
 }
 
 const sha256 = (s) => crypto.createHash("sha256").update(s).digest("hex");
+const newPublicKey = () => crypto.randomBytes(12).toString("base64url"); // 16 url-safe chars
 
 // Seed the admin user so they can sign in even before being pre-provisioned.
 db.prepare(
@@ -577,6 +580,12 @@ if (db.prepare("SELECT COUNT(*) AS n FROM frames").get().n === 0) {
   );
 }
 
+// Backfill a public key for any frame that predates public link mode (runs
+// after the first-run seed above so a fresh DB's default frame gets one too).
+for (const f of db.prepare("SELECT id FROM frames WHERE public_key IS NULL").all()) {
+  db.prepare("UPDATE frames SET public_key = ? WHERE id = ?").run(newPublicKey(), f.id);
+}
+
 // Load every frame's runtime into RAM at boot.
 for (const frameRow of db.prepare("SELECT * FROM frames").all()) {
   loadFrameRuntime(frameRow);
@@ -750,15 +759,13 @@ function requireAdmin(req, res, next) {
 }
 
 // ── Public link mode ─────────────────────────────────────────────────────────
-// The admin can switch a frame to "public": it gets a random key, and anyone
-// opening /f/<slug>?key=<key> (e.g. by scanning a QR code at a show) can
-// control that one frame with no account. The SPA sends the key on every API
-// call as an X-Public-Key header. Public visitors can generate, say text, and
-// pick what's showing — but not delete, rename, or change API keys.
+// While a frame's public link is switched on, anyone opening
+// /f/<slug>?key=<key> (e.g. by scanning a QR code at a show) can control that
+// one frame with no account. The SPA sends the key on every API call as an
+// X-Public-Key header. Public visitors can generate, say text, and pick what's
+// showing — but not delete, rename, or change API keys.
 
 const PUBLIC_KEY_HEADER = "X-Public-Key";
-
-const newPublicKey = () => crypto.randomBytes(12).toString("base64url"); // 16 url-safe chars
 
 function keyMatches(given, expected) {
   if (!given || !expected) return false;
@@ -770,9 +777,9 @@ function keyMatches(given, expected) {
 // The key the request carries, if any (empty string when absent).
 const publicKeyOf = (req) => (req.get(PUBLIC_KEY_HEADER) ?? "").trim();
 
-// True when the request's public key unlocks this frame.
+// True when the request's public key unlocks this frame (mode on + key match).
 function publicKeyUnlocks(req, frame) {
-  return keyMatches(publicKeyOf(req), frame.public_key);
+  return !!frame.public_enabled && keyMatches(publicKeyOf(req), frame.public_key);
 }
 
 // True when the request's public key unlocks ANY frame — enough for the
@@ -781,7 +788,7 @@ function publicKeyUnlocksAny(req) {
   const key = publicKeyOf(req);
   if (!key) return false;
   return db
-    .prepare("SELECT public_key FROM frames WHERE public_key IS NOT NULL")
+    .prepare("SELECT public_key FROM frames WHERE public_enabled = 1")
     .all()
     .some((f) => keyMatches(key, f.public_key));
 }
@@ -1211,28 +1218,20 @@ app.get("/api/admin/frames", requireAdmin, (req, res) => {
       name: f.name,
       createdAt: f.created_at,
       hasApiKey: !!f.anthropic_api_key,
-      publicKey: f.public_key, // null = public link mode off
+      publicKey: f.public_key, // permanent; the admin UI builds /f/<slug>?key=<key>
+      publicEnabled: !!f.public_enabled,
     }))
   );
 });
 
-// Switch a frame's public link mode on (minting a key if it has none), or
-// mint a fresh key with { rotate: true } — old QR codes then stop working.
-// Returns the key; the admin UI builds the URL /f/<slug>?key=<key> from it.
-app.post("/api/admin/frames/:id/public", requireAdmin, (req, res) => {
+// Switch a frame's public link on or off. The key (and so the URL) stays the
+// same across toggles, so printed QR codes keep working whenever it's on.
+app.patch("/api/admin/frames/:id/public", requireAdmin, (req, res) => {
   const frame = db.prepare("SELECT * FROM frames WHERE id = ?").get(req.params.id);
   if (!frame) return res.status(404).json({ error: "not found" });
-  const key = frame.public_key && req.body?.rotate !== true ? frame.public_key : newPublicKey();
-  db.prepare("UPDATE frames SET public_key = ? WHERE id = ?").run(key, frame.id);
-  res.json({ id: frame.id, slug: frame.slug, name: frame.name, publicKey: key });
-});
-
-// Switch public link mode off: the link (and any printed QR code) goes dead.
-app.delete("/api/admin/frames/:id/public", requireAdmin, (req, res) => {
-  const frame = db.prepare("SELECT * FROM frames WHERE id = ?").get(req.params.id);
-  if (!frame) return res.status(404).json({ error: "not found" });
-  db.prepare("UPDATE frames SET public_key = NULL WHERE id = ?").run(frame.id);
-  res.json({ ok: true, publicKey: null });
+  const enabled = req.body?.enabled === true;
+  db.prepare("UPDATE frames SET public_enabled = ? WHERE id = ?").run(enabled ? 1 : 0, frame.id);
+  res.json({ id: frame.id, publicKey: frame.public_key, publicEnabled: enabled });
 });
 
 // Register a frame. Returns the plaintext device key ONCE (only the hash is
@@ -1248,10 +1247,10 @@ app.post("/api/admin/frames", requireAdmin, (req, res) => {
   const key = crypto.randomBytes(24).toString("hex");
   const info = db
     .prepare(
-      `INSERT INTO frames (slug, name, device_key_hash, device_key, active_kind, active_preset_key)
-       VALUES (?, ?, ?, ?, 'preset', ?)`
+      `INSERT INTO frames (slug, name, device_key_hash, device_key, public_key, active_kind, active_preset_key)
+       VALUES (?, ?, ?, ?, ?, 'preset', ?)`
     )
-    .run(slug, name, sha256(key), key, DEFAULT_PRESET_KEY);
+    .run(slug, name, sha256(key), key, newPublicKey(), DEFAULT_PRESET_KEY);
   loadFrameRuntime(db.prepare("SELECT * FROM frames WHERE id = ?").get(info.lastInsertRowid));
   res.json({ id: info.lastInsertRowid, slug, name, deviceKey: key });
 });

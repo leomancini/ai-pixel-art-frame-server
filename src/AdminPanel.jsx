@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
 import styled from "styled-components";
-import QRCode from "qrcode";
 import { api } from "./api";
 import { Input, Button, GhostButton, SectionTitle, Muted, Select, DangerButton } from "./ui";
 
@@ -98,43 +97,25 @@ const KeyBox = styled.div`
   user-select: text;
 `;
 
-// Public link details for one frame, shown under its row while the mode is on.
-const PublicBlock = styled.div`
+// A frame's public link, shown under its row. The URL is permanent (the key
+// never changes) so QR codes can be made ahead of time; the toggle only
+// controls whether the link currently works.
+const PublicRow = styled.div`
   display: flex;
-  gap: 24px;
-  align-items: flex-start;
-  margin: 4px 0 12px;
+  align-items: center;
+  gap: 12px;
+  margin: -4px 0 8px;
   @media (max-width: 640px) {
     flex-direction: column;
+    align-items: stretch;
   }
-`;
-
-// White card so the QR code is scannable straight off the screen too; the SVG
-// carries its own quiet zone.
-const QrBox = styled.div`
-  flex: none;
-  width: 200px;
-  background: #fff;
-  border-radius: 10px;
-  overflow: hidden;
-  & > svg {
-    display: block;
-    width: 100%;
-    height: auto;
-  }
-`;
-
-const PublicInfo = styled.div`
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
 `;
 
 const PublicUrl = styled.div`
+  flex: 1;
+  min-width: 0;
   font-size: 20px;
-  color: #ccc;
+  color: ${(p) => (p.$on ? "#ccc" : "#555")};
   /* The key is case-sensitive — show it as it really is, not uppercased. */
   text-transform: none;
   word-break: break-all;
@@ -142,38 +123,14 @@ const PublicUrl = styled.div`
   user-select: text;
 `;
 
-const PublicActions = styled.div`
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-`;
-
 const publicUrlFor = (f) =>
   `${window.location.origin}/f/${encodeURIComponent(f.slug)}?key=${encodeURIComponent(
     f.publicKey
   )}`;
 
-// Renders `text` as an inline QR code SVG (scales to its container).
-function QrSvg({ text }) {
-  const [svg, setSvg] = useState("");
-  useEffect(() => {
-    let cancelled = false;
-    QRCode.toString(text, { type: "svg", margin: 2, errorCorrectionLevel: "M" })
-      .then((out) => !cancelled && setSvg(out))
-      .catch(() => !cancelled && setSvg(""));
-    return () => {
-      cancelled = true;
-    };
-  }, [text]);
-  return <QrBox dangerouslySetInnerHTML={{ __html: svg }} />;
-}
-
-// QR code + link + controls for a frame in public link mode. The QR encodes
-// the same URL shown here; print it and put it next to the frame.
-function PublicLink({ frame, onRotate, onTurnOff }) {
+function PublicLink({ frame, onToggle }) {
   const url = publicUrlFor(frame);
   const [copied, setCopied] = useState(false);
-
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(url);
@@ -183,41 +140,18 @@ function PublicLink({ frame, onRotate, onTurnOff }) {
       /* clipboard unavailable — the URL is selectable text anyway */
     }
   };
-
-  const download = async () => {
-    // A standalone SVG (with a white quiet zone) so it prints crisp at any size.
-    const svg = await QRCode.toString(url, {
-      type: "svg",
-      margin: 4,
-      errorCorrectionLevel: "M",
-    });
-    const blob = new Blob([svg], { type: "image/svg+xml" });
-    const href = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = href;
-    a.download = `${frame.slug}-qr.svg`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(href);
-  };
-
   return (
-    <PublicBlock>
-      <QrSvg text={url} />
-      <PublicInfo>
-        <PublicUrl>{url}</PublicUrl>
-        <PublicActions>
-          <GreyButton onClick={copy}>{copied ? "Copied" : "Copy link"}</GreyButton>
-          <GreyButton onClick={download}>Download QR</GreyButton>
-          <GreyButton onClick={onRotate}>New link</GreyButton>
-          <DangerButton onClick={onTurnOff}>Turn off</DangerButton>
-        </PublicActions>
-      </PublicInfo>
-    </PublicBlock>
+    <PublicRow>
+      <PublicUrl $on={frame.publicEnabled}>{url}</PublicUrl>
+      <GreyButton onClick={copy}>{copied ? "Copied" : "Copy link"}</GreyButton>
+      {frame.publicEnabled ? (
+        <DangerButton onClick={onToggle}>Public: on</DangerButton>
+      ) : (
+        <GreyButton onClick={onToggle}>Public: off</GreyButton>
+      )}
+    </PublicRow>
   );
 }
-
 
 // Lets an admin rename any frame (not just ones they can access). Auto-saves
 // (debounced) as they type, mirroring FrameName in App.jsx.
@@ -301,39 +235,16 @@ export default function AdminPanel({ onFramesChanged, onReady }) {
     setNewKey(await api.post(`/api/admin/frames/${f.id}/key`));
   };
 
-  // Public link mode: anyone with the link (QR code) controls this frame, no
-  // account needed. Turning it on mints the key; "New link" rotates it (old QR
-  // codes die); turning it off kills the link.
-  const enablePublic = async (f) => {
+  // Public link: anyone with the frame's (permanent) link controls it, no
+  // account needed, while this is on. Toggling never changes the link.
+  const togglePublic = async (f) => {
     setErr("");
     try {
-      await api.post(`/api/admin/frames/${f.id}/public`);
+      await api.patch(`/api/admin/frames/${f.id}/public`, { enabled: !f.publicEnabled });
       load();
     } catch (e) {
       setErr(e.message);
     }
-  };
-
-  const rotatePublic = async (f) => {
-    if (
-      !window.confirm(
-        `Make a new public link for "${f.name}"? The current link and any printed QR codes stop working.`
-      )
-    )
-      return;
-    await api.post(`/api/admin/frames/${f.id}/public`, { rotate: true });
-    load();
-  };
-
-  const disablePublic = async (f) => {
-    if (
-      !window.confirm(
-        `Turn off the public link for "${f.name}"? Anyone who scanned its QR code loses control.`
-      )
-    )
-      return;
-    await api.del(`/api/admin/frames/${f.id}/public`);
-    load();
   };
 
   const deleteFrame = async (f) => {
@@ -437,26 +348,17 @@ export default function AdminPanel({ onFramesChanged, onReady }) {
                     <Sub>own key</Sub>
                   </>
                 )}
-                {f.publicKey && (
+                {f.publicEnabled && (
                   <>
                     <Sep>/</Sep>
                     <Sub>public</Sub>
                   </>
                 )}
               </Grow>
-              {!f.publicKey && (
-                <GreyButton onClick={() => enablePublic(f)}>Public link</GreyButton>
-              )}
               <GreyButton onClick={() => rotateKey(f)}>Rotate key</GreyButton>
               <DangerButton onClick={() => deleteFrame(f)}>Delete</DangerButton>
             </Item>
-            {f.publicKey && (
-              <PublicLink
-                frame={f}
-                onRotate={() => rotatePublic(f)}
-                onTurnOff={() => disablePublic(f)}
-              />
-            )}
+            <PublicLink frame={f} onToggle={() => togglePublic(f)} />
           </React.Fragment>
         ))}
         <AddForm onSubmit={addFrame}>
