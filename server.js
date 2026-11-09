@@ -669,7 +669,7 @@ async function generateAnimation(prompt, apiKey) {
   const messages = [{ role: "user", content: prompt }];
   for (let attempt = 0; attempt < 2; attempt++) {
     const stream = client.messages.stream({
-      model: "claude-opus-4-8",
+      model: "claude-sonnet-5-5",
       max_tokens: 32000,
       thinking: { type: "adaptive" },
       system: [
