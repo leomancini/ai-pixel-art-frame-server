@@ -634,37 +634,137 @@ const ANIMATION_SCHEMA = {
 
 // Execute generated code in a vm sandbox and rasterize all frames.
 // Throws (with a useful message) if the code is broken.
+//
+// The context gets NO host objects: a null-prototype sandbox, so the code only
+// sees the new context's own intrinsics (its own Math etc.). Passing the host's
+// Math (or a plain {} sandbox, which inherits the host's Object.prototype)
+// would let the code climb `.constructor.constructor` to the host's Function
+// and from there to `process`. Results come back as a JSON string — a
+// primitive — so no object from the context is ever touched on the host side
+// (a getter/proxy on one would run generated code outside the timeout). The
+// generated code runs inside the try so its own errors come back as a message
+// too; the frame loop sits in an inner function so its locals can't collide
+// with names the generated code declares.
 function rasterize(code, frameCount) {
   const harness = `
     "use strict";
-    ${code}
-    ;(() => {
-      const frames = [];
-      for (let f = 0; f < ${frameCount}; f++) {
-        const frame = new Array(${FRAME_WIDTH * FRAME_HEIGHT * 3});
-        for (let y = 0; y < ${FRAME_HEIGHT}; y++) {
-          for (let x = 0; x < ${FRAME_WIDTH}; x++) {
-            const px = render(f, ${frameCount}, x, y);
-            const o = (y * ${FRAME_WIDTH} + x) * 3;
-            for (let c = 0; c < 3; c++) {
-              const v = Math.round(Number(px && px[c]));
-              frame[o + c] = v >= 0 ? (v <= 255 ? v : 255) : 0; // clamps NaN to 0
+    (() => {
+      try {
+        ${code}
+        ;return JSON.stringify({ frames: (() => {
+          const frames = [];
+          for (let f = 0; f < ${frameCount}; f++) {
+            const frame = new Array(${FRAME_WIDTH * FRAME_HEIGHT * 3});
+            for (let y = 0; y < ${FRAME_HEIGHT}; y++) {
+              for (let x = 0; x < ${FRAME_WIDTH}; x++) {
+                const px = render(f, ${frameCount}, x, y);
+                const o = (y * ${FRAME_WIDTH} + x) * 3;
+                for (let c = 0; c < 3; c++) {
+                  const v = Math.round(Number(px && px[c]));
+                  frame[o + c] = v >= 0 ? (v <= 255 ? v : 255) : 0; // clamps NaN to 0
+                }
+              }
             }
+            frames.push(frame);
           }
-        }
-        frames.push(frame);
+          return frames;
+        })() });
+      } catch (e) {
+        return JSON.stringify({ error: String(e && e.message) });
       }
-      return frames;
     })()
   `;
-  const context = vm.createContext({ Math });
-  return new vm.Script(harness).runInContext(context, { timeout: 5000 });
+  const context = vm.createContext(Object.create(null));
+  const script = new vm.Script(harness); // a SyntaxError here is a plain host error
+  let out;
+  try {
+    out = script.runInContext(context, { timeout: 5000 });
+  } catch {
+    // The harness catches whatever the code throws, so in practice this is the
+    // timeout. The error object belongs to the context: don't read it.
+    throw new Error("render code took too long to run (5s limit)");
+  }
+  if (typeof out !== "string") throw new Error("render code returned an invalid result");
+  let parsed;
+  try {
+    parsed = JSON.parse(out);
+  } catch {
+    throw new Error("render code returned an invalid result");
+  }
+  if (typeof parsed?.error === "string") throw new Error(parsed.error);
+  const frames = parsed?.frames;
+  const valid =
+    Array.isArray(frames) &&
+    frames.length > 0 &&
+    frames.length <= MAX_FRAMES &&
+    frames.every(
+      (frame) =>
+        Array.isArray(frame) &&
+        frame.length === FRAME_WIDTH * FRAME_HEIGHT * 3 &&
+        frame.every((v) => Number.isInteger(v) && v >= 0 && v <= 255)
+    );
+  if (!valid) throw new Error("render code returned an invalid result");
+  return frames;
+}
+
+// Generation is slow and expensive, so only a few run at once (shared by the
+// web routes and the MCP tool, which both call generateAnimation). Extra
+// requests wait in FIFO order; when the queue is full, or a request has waited
+// too long, it fails with a "busy" error that surfaces through the callers'
+// normal "generation failed" handling.
+const MAX_CONCURRENT_GENERATIONS = 3;
+const MAX_QUEUED_GENERATIONS = 10;
+const GENERATION_QUEUE_WAIT_MS = 60 * 1000;
+// Wall-clock cap on one Claude call (the SDK's own `timeout` only covers the
+// wait for response headers, not the streamed body).
+const GENERATION_TIMEOUT_MS = 180 * 1000;
+const GENERATION_BUSY_MESSAGE = "too many animations are being generated right now — try again in a minute";
+
+let activeGenerations = 0;
+const generationQueue = [];
+
+function acquireGenerationSlot() {
+  if (activeGenerations < MAX_CONCURRENT_GENERATIONS) {
+    activeGenerations++;
+    return Promise.resolve();
+  }
+  if (generationQueue.length >= MAX_QUEUED_GENERATIONS) {
+    return Promise.reject(new Error(GENERATION_BUSY_MESSAGE));
+  }
+  return new Promise((resolve, reject) => {
+    const entry = { resolve };
+    entry.timer = setTimeout(() => {
+      const i = generationQueue.indexOf(entry);
+      if (i !== -1) generationQueue.splice(i, 1);
+      reject(new Error(GENERATION_BUSY_MESSAGE));
+    }, GENERATION_QUEUE_WAIT_MS);
+    generationQueue.push(entry);
+  });
+}
+
+function releaseGenerationSlot() {
+  const next = generationQueue.shift();
+  if (next) {
+    clearTimeout(next.timer);
+    next.resolve(); // hand the slot straight to the next waiter
+  } else {
+    activeGenerations--;
+  }
+}
+
+async function generateAnimation(prompt, apiKey) {
+  await acquireGenerationSlot();
+  try {
+    return await runGeneration(prompt, apiKey);
+  } finally {
+    releaseGenerationSlot();
+  }
 }
 
 // Ask Claude for an animation and rasterize it; one retry with the error
 // fed back if the generated code fails to run. `apiKey`, when provided, is a
 // frame's own Anthropic key and overrides the system one for this request only.
-async function generateAnimation(prompt, apiKey) {
+async function runGeneration(prompt, apiKey) {
   const client = apiKey ? new Anthropic({ apiKey }) : anthropic;
   const messages = [{ role: "user", content: prompt }];
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -683,8 +783,21 @@ async function generateAnimation(prompt, apiKey) {
         format: { type: "json_schema", schema: ANIMATION_SCHEMA },
       },
       messages,
-    });
-    const message = await stream.finalMessage();
+    }, { timeout: GENERATION_TIMEOUT_MS });
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      stream.abort();
+    }, GENERATION_TIMEOUT_MS);
+    let message;
+    try {
+      message = await stream.finalMessage();
+    } catch (error) {
+      if (timedOut) throw new Error(`timed out after ${GENERATION_TIMEOUT_MS / 1000}s`);
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
     const text = message.content.find((b) => b.type === "text")?.text;
     const result = JSON.parse(text);
     // Titles are always a single word — keep the first word, strip the rest.
@@ -833,6 +946,18 @@ function forbidPublic(req, res, next) {
   next();
 }
 
+// Express 4 doesn't catch a rejected promise from an async handler (the
+// request would hang and the rejection would go unhandled), so async routes
+// are wrapped to answer with the usual JSON error shape instead.
+const catchAsync = (handler) => async (req, res, next) => {
+  try {
+    await handler(req, res, next);
+  } catch (error) {
+    console.error(`[!] ${req.method} ${req.path} failed:`, error);
+    if (!res.headersSent) res.status(500).json({ error: "internal server error" });
+  }
+};
+
 // Public config the SPA needs before sign-in
 app.get("/api/config", (req, res) => {
   res.json({ googleClientId: GOOGLE_CLIENT_ID });
@@ -840,7 +965,7 @@ app.get("/api/config", (req, res) => {
 
 // Exchange a Google ID token for a session. Sign-in is gated: only the admin
 // email or a pre-provisioned user (a row added by the admin) is allowed.
-app.post("/api/auth/google", async (req, res) => {
+app.post("/api/auth/google", catchAsync(async (req, res) => {
   if (!googleClient) {
     return res.status(503).json({ error: "sign-in is not configured" });
   }
@@ -864,12 +989,12 @@ app.post("/api/auth/google", async (req, res) => {
     sub: payload.sub,
     name: payload.name,
   });
-});
+}));
 
 // Sign in with an OAuth access token from the GIS token flow (used by the
 // custom button — a real user click opens the popup, no FedCM needed). The
 // token is verified to have been issued for THIS app to prevent substitution.
-app.post("/api/auth/google-token", async (req, res) => {
+app.post("/api/auth/google-token", catchAsync(async (req, res) => {
   if (!GOOGLE_CLIENT_ID) {
     return res.status(503).json({ error: "sign-in is not configured" });
   }
@@ -904,7 +1029,7 @@ app.post("/api/auth/google-token", async (req, res) => {
     /* name is optional */
   }
   return finishLogin(req, res, { email: info.email, sub: info.sub, name });
-});
+}));
 
 // Gate the email and upsert the user. Returns the user row, or null if the
 // email isn't authorized to sign in (not the admin and not pre-provisioned).
@@ -1074,7 +1199,7 @@ app.get("/api/frames/:id/gallery", requireFrameAccess, (req, res) => {
   const rows = db
     .prepare(
       `SELECT id, prompt, name, frame_count, delay_ms, created_at
-       FROM animations WHERE frame_id = ? ORDER BY id DESC`
+       FROM animations WHERE frame_id = ? ORDER BY id DESC LIMIT 200`
     )
     .all(req.frame.id);
   res.json(
@@ -1101,7 +1226,7 @@ app.get("/api/frames/:id/gallery/:gid", requireFrameAccess, (req, res) => {
 });
 
 // Generate a new animation from a prompt, save it to this frame, show it.
-app.post("/api/frames/:id/generate", requireFrameAccess, async (req, res) => {
+app.post("/api/frames/:id/generate", requireFrameAccess, catchAsync(async (req, res) => {
   const prompt = (req.body?.prompt ?? "").trim();
   if (!prompt) return res.status(400).json({ error: "prompt is required" });
   if (prompt.length > 500) {
@@ -1127,7 +1252,7 @@ app.post("/api/frames/:id/generate", requireFrameAccess, async (req, res) => {
     console.error("[!] generation failed:", error);
     res.status(500).json({ error: `generation failed: ${error.message}` });
   }
-});
+}));
 
 // Show a gallery animation on the frame
 app.post("/api/frames/:id/gallery/:gid/activate", requireFrameAccess, (req, res) => {

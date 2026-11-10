@@ -302,6 +302,18 @@ export function mountMcp(app, deps) {
     },
   };
 
+  // Express 4 doesn't catch a rejected promise from an async handler (the
+  // request would hang and the rejection would go unhandled), so the async
+  // handlers below are wrapped; `onError` sends the 500 in the route's own shape.
+  const catchAsync = (handler, onError) => async (req, res, next) => {
+    try {
+      await handler(req, res, next);
+    } catch (e) {
+      console.error(`[mcp] ${req.method} ${req.path} failed:`, e);
+      if (!res.headersSent) onError(req, res);
+    }
+  };
+
   // ── OAuth authorization-server endpoints (metadata, /authorize, /token, …) ──
   if (oauthEnabled) {
     app.use(
@@ -317,7 +329,7 @@ export function mountMcp(app, deps) {
 
     // Google's redirect back to us: verify identity, gate the email, then hand
     // the MCP client its own authorization code.
-    app.get("/oauth/google/callback", async (req, res) => {
+    app.get("/oauth/google/callback", catchAsync(async (req, res) => {
       sweep(pendingLogins);
       const tx = pendingLogins.get(String(req.query.state ?? ""));
       if (tx) pendingLogins.delete(String(req.query.state));
@@ -378,7 +390,7 @@ export function mountMcp(app, deps) {
         expiresAt: Date.now() + AUTH_CODE_TTL_MS,
       });
       bounce({ code: ourCode });
-    });
+    }, (req, res) => res.status(500).send("Login failed — please try connecting again.")));
   }
 
   // ── Bearer gate with the frame-003 anonymous exception ──────────────────────
@@ -517,7 +529,7 @@ export function mountMcp(app, deps) {
         if (error) return fail(error);
         const gallery = db
           .prepare(
-            "SELECT id, name, prompt, frame_count, delay_ms, created_at FROM animations WHERE frame_id = ? ORDER BY id DESC"
+            "SELECT id, name, prompt, frame_count, delay_ms, created_at FROM animations WHERE frame_id = ? ORDER BY id DESC LIMIT 200"
           )
           .all(frame.id)
           .map((r) => ({
@@ -624,7 +636,13 @@ export function mountMcp(app, deps) {
   }
 
   // ── Streamable-HTTP endpoint (stateless: a fresh server/transport per call) ──
-  app.post("/mcp", mcpGate, async (req, res) => {
+  const gateFailed = (req, res) =>
+    res.status(500).json({
+      jsonrpc: "2.0",
+      error: { code: -32603, message: "Internal server error" },
+      id: null,
+    });
+  app.post("/mcp", catchAsync(mcpGate, gateFailed), async (req, res) => {
     const server = buildServer();
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     res.on("close", () => {

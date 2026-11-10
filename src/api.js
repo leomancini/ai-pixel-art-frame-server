@@ -13,21 +13,31 @@ export function setPublicKey(key) {
   publicKey = key || null;
 }
 
-async function req(method, path, body) {
+// `timeoutMs` (optional) aborts a request that hangs, so callers that show a
+// loading state get an error instead of waiting forever.
+async function req(method, path, body, timeoutMs) {
   const headers = {};
   if (body) headers["Content-Type"] = "application/json";
   if (publicKey) headers["X-Public-Key"] = publicKey;
-  const res = await fetch(path, {
-    method,
-    credentials: "same-origin",
-    headers,
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  let res, text;
+  try {
+    res = await fetch(path, {
+      method,
+      credentials: "same-origin",
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+      // Older browsers lack AbortSignal.timeout — they just get no timeout.
+      signal: timeoutMs && AbortSignal.timeout ? AbortSignal.timeout(timeoutMs) : undefined,
+    });
+    if (res.status !== 401) text = await res.text();
+  } catch (err) {
+    if (err?.name === "TimeoutError") throw new Error("request timed out — please try again");
+    throw err;
+  }
   if (res.status === 401) {
     onUnauthorized();
     throw new Error("unauthorized");
   }
-  const text = await res.text();
   let data = null;
   if (text) {
     try {
@@ -41,8 +51,8 @@ async function req(method, path, body) {
 }
 
 export const api = {
-  get: (p) => req("GET", p),
-  post: (p, b) => req("POST", p, b),
+  get: (p, t) => req("GET", p, undefined, t),
+  post: (p, b, t) => req("POST", p, b, t),
   patch: (p, b) => req("PATCH", p, b),
   del: (p, b) => req("DELETE", p, b),
 };

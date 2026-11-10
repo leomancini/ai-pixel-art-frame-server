@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import styled from "styled-components";
 import { api } from "./api";
 
@@ -58,6 +58,22 @@ export default function AnimPreview({ src, shimmer, onReady }) {
   // Live playback state so the resize handler can redraw the current frame
   // immediately (sizing the canvas clears it — otherwise it flickers blank).
   const stateRef = useRef({ frames: null, idx: 0, t: 0 });
+  // Only animate while the canvas is on screen: a long gallery otherwise runs
+  // a timer + full redraw per card forever, which bogs phones down. Off-screen
+  // previews hold their first frame. (No IntersectionObserver: always animate.)
+  const [visible, setVisible] = useState(typeof IntersectionObserver === "undefined");
+  const [loaded, setLoaded] = useState(null); // the `src` whose frames are in stateRef
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver(
+      (entries) => setVisible(entries[entries.length - 1].isIntersecting),
+      { rootMargin: "100px" }
+    );
+    io.observe(canvas);
+    return () => io.disconnect();
+  }, []);
 
   // Draw whatever the current state is to the canvas.
   const draw = () => {
@@ -107,7 +123,7 @@ export default function AnimPreview({ src, shimmer, onReady }) {
 
   // Shimmer loading animation: a grey band sweeps diagonally over black pixels.
   useEffect(() => {
-    if (!shimmer) return;
+    if (!shimmer || !visible) return;
     stateRef.current.t = 0;
     const tick = () => {
       stateRef.current.t += 1;
@@ -117,9 +133,9 @@ export default function AnimPreview({ src, shimmer, onReady }) {
     tick();
     return () => clearTimeout(animRef.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shimmer]);
+  }, [shimmer, visible]);
 
-  // Play the animation from `src`.
+  // Load the animation from `src` and draw its first frame.
   useEffect(() => {
     if (shimmer) return;
     let cancelled = false;
@@ -128,22 +144,38 @@ export default function AnimPreview({ src, shimmer, onReady }) {
       .then(({ frames, delayMs }) => {
         if (cancelled) return;
         stateRef.current.frames = frames;
+        stateRef.current.delayMs = delayMs;
         stateRef.current.idx = 0;
-        const tick = () => {
-          draw();
-          stateRef.current.idx = (stateRef.current.idx + 1) % frames.length;
-          animRef.current = setTimeout(tick, delayMs);
-        };
-        tick();
+        draw();
+        setLoaded(src); // starts playback below (when on screen)
         onReady?.(); // first frame is drawn — safe to fade the card in
       })
       .catch(() => onReady?.()); // don't leave the card hidden on error
     return () => {
       cancelled = true;
-      clearTimeout(animRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [src, shimmer]);
+
+  // Play the loaded animation, but only while it's on screen. When it scrolls
+  // away the timer stops and the canvas rests on the first frame.
+  useEffect(() => {
+    if (shimmer || loaded !== src) return;
+    const st = stateRef.current;
+    if (!visible) {
+      st.idx = 0;
+      draw();
+      return;
+    }
+    const tick = () => {
+      draw();
+      st.idx = (st.idx + 1) % st.frames.length;
+      animRef.current = setTimeout(tick, st.delayMs);
+    };
+    tick();
+    return () => clearTimeout(animRef.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [src, shimmer, loaded, visible]);
 
   return (
     <Frame>

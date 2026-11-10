@@ -225,6 +225,12 @@ function useIsMobile() {
   return mobile;
 }
 
+// Request timeouts, so a hung connection can't leave the form stuck in its
+// loading state. Generation must outlast the server's own worst case (up to
+// 60s queued + Claude attempts + rasterizing; the proxy gives up at 5 minutes).
+const GENERATE_TIMEOUT_MS = 6 * 60 * 1000;
+const LIST_TIMEOUT_MS = 30 * 1000;
+
 // Generate + gallery + preset picker for a single frame. `frame` carries the
 // active selection; `refresh` reloads the frame list so highlights stay live.
 // `publicMode` is the QR-code visitor view: same controls, but no deleting.
@@ -252,8 +258,8 @@ export default function FrameControl({ frame, refresh, publicMode = false }) {
   }, [phase]);
 
   const loadLists = () => {
-    api.get(`/api/frames/${frame.id}/gallery`).then(setGallery).catch(() => {});
-    api.get("/api/presets").then(setPresets).catch(() => {});
+    api.get(`/api/frames/${frame.id}/gallery`, LIST_TIMEOUT_MS).then(setGallery).catch(() => {});
+    api.get("/api/presets", LIST_TIMEOUT_MS).then(setPresets).catch(() => {});
   };
   useEffect(loadLists, [frame.id]);
 
@@ -286,8 +292,8 @@ export default function FrameControl({ frame, refresh, publicMode = false }) {
     setGallery((g) => [{ pending: true }, ...g]);
     try {
       const data = say
-        ? await api.post(`/api/frames/${frame.id}/say`, { text: say[1] })
-        : await api.post(`/api/frames/${frame.id}/generate`, { prompt: text });
+        ? await api.post(`/api/frames/${frame.id}/say`, { text: say[1] }, LIST_TIMEOUT_MS)
+        : await api.post(`/api/frames/${frame.id}/generate`, { prompt: text }, GENERATE_TIMEOUT_MS);
       refresh(); // server activated the new animation (updates selection)
       if (data.existing) {
         // Re-saying a saved message re-activates its existing card — drop the
