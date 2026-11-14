@@ -29,6 +29,40 @@ const Canvas = styled.canvas`
   display: block;
 `;
 
+// Preview downloads go through a small queue. Every card used to fetch its frames
+// the instant it mounted — a long gallery fired dozens of big requests at once,
+// and since the browser only opens a handful of connections per host, a tap's
+// activate POST sat in line behind all of them (you couldn't send anything to
+// the frame until every preview had loaded). Capping concurrency well under that
+// limit keeps a connection free for taps; cards also only queue once they're
+// near the screen, so off-screen ones don't clog the line.
+const MAX_PREVIEW_LOADS = 2;
+let activeLoads = 0;
+const waiting = [];
+
+function pumpQueue() {
+  while (activeLoads < MAX_PREVIEW_LOADS && waiting.length) {
+    const job = waiting.shift();
+    activeLoads++;
+    job.run().finally(() => {
+      activeLoads--;
+      pumpQueue();
+    });
+  }
+}
+
+// Queue `run` (returns a promise). Returns a cancel fn that drops the job if it
+// hasn't started yet; a started download is left to finish (and get cached).
+function enqueueLoad(run) {
+  const job = { run };
+  waiting.push(job);
+  pumpQueue();
+  return () => {
+    const i = waiting.indexOf(job);
+    if (i !== -1) waiting.splice(i, 1);
+  };
+}
+
 // Draw one grid of dots from a per-pixel color function (x, y) -> [r,g,b].
 function drawGrid(ctx, canvas, colorAt) {
   const cellX = canvas.width / SIZE;
@@ -69,7 +103,7 @@ export default function AnimPreview({ src, shimmer, onReady }) {
     if (!canvas || typeof IntersectionObserver === "undefined") return;
     const io = new IntersectionObserver(
       (entries) => setVisible(entries[entries.length - 1].isIntersecting),
-      { rootMargin: "100px" }
+      { rootMargin: "300px" }
     );
     io.observe(canvas);
     return () => io.disconnect();
@@ -135,27 +169,36 @@ export default function AnimPreview({ src, shimmer, onReady }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shimmer, visible]);
 
-  // Load the animation from `src` and draw its first frame.
+  // Load the animation from `src` (once it's near the screen, via the shared
+  // queue above) and draw its first frame. A download that has already started
+  // is kept even if the card scrolls away; only a not-yet-started one is dropped.
+  const srcRef = useRef(src);
+  srcRef.current = src;
+  const inflightRef = useRef(null); // src currently downloading
   useEffect(() => {
-    if (shimmer) return;
-    let cancelled = false;
-    api
-      .get(src)
-      .then(({ frames, delayMs }) => {
-        if (cancelled) return;
-        stateRef.current.frames = frames;
-        stateRef.current.delayMs = delayMs;
-        stateRef.current.idx = 0;
-        draw();
-        setLoaded(src); // starts playback below (when on screen)
-        onReady?.(); // first frame is drawn — safe to fade the card in
-      })
-      .catch(() => onReady?.()); // don't leave the card hidden on error
-    return () => {
-      cancelled = true;
-    };
+    if (shimmer || !visible || loaded === src || inflightRef.current === src) return;
+    return enqueueLoad(() => {
+      inflightRef.current = src;
+      return api
+        .get(src)
+        .then(({ frames, delayMs }) => {
+          if (srcRef.current !== src) return; // card moved on to another src
+          stateRef.current.frames = frames;
+          stateRef.current.delayMs = delayMs;
+          stateRef.current.idx = 0;
+          draw();
+          setLoaded(src); // starts playback below (when on screen)
+          onReady?.(); // first frame is drawn — safe to fade the card in
+        })
+        .catch(() => {
+          if (srcRef.current === src) onReady?.(); // don't leave the card hidden
+        })
+        .finally(() => {
+          if (inflightRef.current === src) inflightRef.current = null;
+        });
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [src, shimmer]);
+  }, [src, shimmer, visible, loaded]);
 
   // Play the loaded animation, but only while it's on screen. When it scrolls
   // away the timer stops and the canvas rests on the first frame.

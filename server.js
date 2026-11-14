@@ -1194,14 +1194,25 @@ app.delete("/api/frames/:id/api-key", requireFrameAccess, forbidPublic, (req, re
   res.json({ ok: true, hasApiKey: false });
 });
 
-// One frame's gallery (newest first; no frame data — fetch per-item for previews)
+// One frame's gallery (newest first; no frame data — fetch per-item for previews).
+// Paged for infinite scroll: `limit` (1–200, default 200) items, and `before`
+// (an animation id) to continue after the last item the client already has.
 app.get("/api/frames/:id/gallery", requireFrameAccess, (req, res) => {
-  const rows = db
-    .prepare(
-      `SELECT id, prompt, name, frame_count, delay_ms, created_at
-       FROM animations WHERE frame_id = ? ORDER BY id DESC LIMIT 200`
-    )
-    .all(req.frame.id);
+  const limit = Math.min(200, Math.max(1, parseInt(req.query.limit, 10) || 200));
+  const before = parseInt(req.query.before, 10);
+  const rows = Number.isFinite(before)
+    ? db
+        .prepare(
+          `SELECT id, prompt, name, frame_count, delay_ms, created_at
+           FROM animations WHERE frame_id = ? AND id < ? ORDER BY id DESC LIMIT ?`
+        )
+        .all(req.frame.id, before, limit)
+    : db
+        .prepare(
+          `SELECT id, prompt, name, frame_count, delay_ms, created_at
+           FROM animations WHERE frame_id = ? ORDER BY id DESC LIMIT ?`
+        )
+        .all(req.frame.id, limit);
   res.json(
     rows.map((r) => ({
       id: r.id,
