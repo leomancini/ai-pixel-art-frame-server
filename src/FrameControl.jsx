@@ -58,6 +58,12 @@ const Status = styled.div`
   text-align: center;
 `;
 
+// Invisible marker under the grid; scrolling near it loads the next page.
+const Sentinel = styled.div`
+  width: 100%;
+  height: 1px;
+`;
+
 const fadeIn = keyframes`
   from { opacity: 0; }
   to { opacity: 1; }
@@ -230,6 +236,7 @@ function useIsMobile() {
 // 60s queued + Claude attempts + rasterizing; the proxy gives up at 5 minutes).
 const GENERATE_TIMEOUT_MS = 6 * 60 * 1000;
 const LIST_TIMEOUT_MS = 30 * 1000;
+const PAGE_SIZE = 10; // gallery cards fetched per infinite-scroll page
 
 // Generate + gallery + preset picker for a single frame. `frame` carries the
 // active selection; `refresh` reloads the frame list so highlights stay live.
@@ -257,11 +264,89 @@ export default function FrameControl({ frame, refresh, publicMode = false }) {
     return () => clearInterval(id);
   }, [phase]);
 
+  // Infinite scroll: the gallery loads PAGE_SIZE cards at a time, and the next
+  // page is fetched when a sentinel under the grid nears the screen.
+  // `galleryDone` = the server has no older items; presets show after that.
+  const [galleryDone, setGalleryDone] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const galleryRef = useRef(gallery);
+  galleryRef.current = gallery;
+  // Bumped on every full reload so an in-flight "load more" from before it
+  // can't append stale rows on top of the fresh list.
+  const listGen = useRef(0);
+  const realCount = (g) => g.filter((it) => !it.pending).length;
+
+  // (Re)load the gallery from the top, keeping as many cards as are already
+  // showing (at least one page) so a re-sync doesn't collapse the scroll.
   const loadLists = () => {
-    api.get(`/api/frames/${frame.id}/gallery`, LIST_TIMEOUT_MS).then(setGallery).catch(() => {});
+    const gen = ++listGen.current;
+    const limit = Math.min(199, Math.max(PAGE_SIZE, realCount(galleryRef.current)));
+    setLoadingMore(false);
+    api
+      // Ask for one extra row: it only tells us whether there's more to load.
+      .get(`/api/frames/${frame.id}/gallery?limit=${limit + 1}`, LIST_TIMEOUT_MS)
+      .then((all) => {
+        if (gen !== listGen.current) return;
+        const rows = all.slice(0, limit);
+        // Keep a generating placeholder at the front if one is showing.
+        setGallery((g) => (g.some((it) => it.pending) ? [{ pending: true }, ...rows] : rows));
+        setGalleryDone(all.length <= limit);
+      })
+      .catch(() => {});
     api.get("/api/presets", LIST_TIMEOUT_MS).then(setPresets).catch(() => {});
   };
-  useEffect(loadLists, [frame.id]);
+  useEffect(() => {
+    listGen.current++;
+    setGallery([]);
+    setGalleryDone(false);
+    loadLists();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [frame.id]);
+
+  const loadMore = () => {
+    if (loadingMore || galleryDone) return;
+    const real = galleryRef.current.filter((it) => !it.pending);
+    if (!real.length) return; // first page hasn't arrived yet
+    const gen = listGen.current;
+    setLoadingMore(true);
+    api
+      .get(
+        `/api/frames/${frame.id}/gallery?limit=${PAGE_SIZE + 1}&before=${real[real.length - 1].id}`,
+        LIST_TIMEOUT_MS
+      )
+      .then((all) => {
+        if (gen !== listGen.current) return;
+        const rows = all.slice(0, PAGE_SIZE);
+        setGallery((g) => {
+          const have = new Set(g.map((it) => it.id));
+          return [...g, ...rows.filter((r) => !have.has(r.id))];
+        });
+        if (all.length <= PAGE_SIZE) setGalleryDone(true);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (gen === listGen.current) setLoadingMore(false);
+      });
+  };
+
+  // Sentinel under the grid: when it comes within reach, fetch the next page.
+  // Re-armed after every page so a short page that leaves the sentinel still
+  // on screen keeps loading until the screen is full.
+  const sentinelRef = useRef(null);
+  const loadMoreRef = useRef(loadMore);
+  loadMoreRef.current = loadMore;
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el || galleryDone || loadingMore || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) loadMoreRef.current();
+      },
+      { rootMargin: "600px" }
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [galleryDone, loadingMore, gallery.length]);
 
   // Optimistic selection so the active border doesn't flicker while the
   // activate request round-trips; cleared once the server's state catches up.
@@ -395,7 +480,7 @@ export default function FrameControl({ frame, refresh, publicMode = false }) {
             />
           )
         )}
-        {presets.map((p) => (
+        {galleryDone && presets.map((p) => (
           <Card
             type="button"
             key={`p-${p.key}`}
@@ -407,6 +492,7 @@ export default function FrameControl({ frame, refresh, publicMode = false }) {
           </Card>
         ))}
       </Row>
+      {!galleryDone && <Sentinel ref={sentinelRef} />}
     </Content>
   );
 }
